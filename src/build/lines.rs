@@ -163,9 +163,11 @@ pub fn build(ctx: &mut Ctx) {
     let has_xp_lines = runs.iter().any(|(r, _, _)| matches!(semantic(r.line), Some(Sem::Center) | Some(Sem::CenterIls)));
 
     let mut road_lines: Vec<LineString<f64>> = Vec::new();
+    let mut holds: Vec<LineString<f64>> = Vec::new();
+    let mut centerlines: Vec<(conv::CodedRun, Option<String>, &'static str, Sem)> = Vec::new();
+    // Pass 1: everything except centrelines, so hold lines are known before exits are cut.
     for (run, desc, src) in runs {
         let sem = semantic(run.line).unwrap_or_else(|| classify_geom(&run.pts, &all_edges, &runways));
-        let lighting = lit(run.light);
         match sem {
             Sem::Ignore => {}
             Sem::RoadCenter => road_lines.push(run.pts),
@@ -173,16 +175,20 @@ pub fn build(ctx: &mut Ctx) {
                 let cs = if sem == Sem::RunwayHold { catstop::CAT_I } else { catstop::CAT_II_III };
                 let idrwy = nearest_runway(&run.pts, &runways, 500.0);
                 let (idlin, _) = nearest_edge_name(&run.pts, &edges, 40.0);
+                holds.push(run.pts.clone());
                 ctx.push(AmdbFeature::new(Layer::TaxiwayHoldingPosition, run.pts).with("idlin", opt(idlin)).with("idrwy", opt(idrwy)).with("catstop", cs).with("lighting", matches!(run.light, 103 | 104)).with("status", 1).with("source", src));
             }
             Sem::IntersectionHold => {
                 let (idlin, _) = nearest_edge_name(&run.pts, &edges, 40.0);
                 ctx.push(AmdbFeature::new(Layer::TaxiwayIntersectionMarking, run.pts).with("idlin", opt(idlin)).with("source", src));
             }
-            Sem::Center | Sem::CenterIls | Sem::Lane => {
-                emit_centerline(ctx, run.pts, sem == Sem::Lane, sem == Sem::CenterIls, lighting, desc, src, &edges, &stands, &runway_mp, &runways);
-            }
+            Sem::Center | Sem::CenterIls | Sem::Lane => centerlines.push((run, desc, src, sem)),
         }
+    }
+    // Pass 2: centrelines, exits extended to the first hold line.
+    for (run, desc, src, sem) in centerlines {
+        let lighting = lit(run.light);
+        emit_centerline(ctx, run.pts, sem == Sem::Lane, sem == Sem::CenterIls, lighting, desc, src, &edges, &stands, &runway_mp, &runways, &holds);
     }
 
     // OSM fallback centrelines when X-Plane painted none.
@@ -193,7 +199,7 @@ pub fn build(ctx: &mut Ctx) {
                 continue;
             }
             let name = l.name.clone();
-            emit_centerline(ctx, ls, false, false, false, name, source::OSM, &edges, &stands, &runway_mp, &runways);
+            emit_centerline(ctx, ls, false, false, false, name, source::OSM, &edges, &stands, &runway_mp, &runways, &[]);
         }
     }
     // OSM holding-position nodes -> short lines perpendicular to the nearest centreline.
@@ -267,10 +273,67 @@ fn emit_centerline(
     stands: &[(String, Coord<f64>)],
     runway_mp: &geo_types::MultiPolygon<f64>,
     runways: &[super::RwyGeom],
+    holds: &[LineString<f64>],
 ) {
-    // Portions inside a runway are exit lines.
-    let (inside, outside) = if runway_mp.0.is_empty() { (vec![], vec![pts]) } else { ops::split_by(runway_mp, &pts) };
+    // Portions inside a runway are exit lines; a true exit (one end on the runway
+    // centreline) is extended along the same painted line beyond the runway edge up to
+    // the first holding position, or 300 m, as Navigraph captures it.
+    let (inside, mut outside) = if runway_mp.0.is_empty() { (vec![], vec![pts]) } else { ops::split_by(runway_mp, &pts) };
+    let mut extended: Vec<LineString<f64>> = Vec::new();
     for seg in inside {
+        let rw = nearest_runway(&seg, runways, 200.0).and_then(|id| runways.iter().find(|r| r.idrwy == id));
+        let Some(rw) = rw else { extended.push(seg); continue };
+        let d0 = ops::point_seg_dist(seg.0[0], rw.ends[0], rw.ends[1]);
+        let d1 = ops::point_seg_dist(*seg.0.last().unwrap(), rw.ends[0], rw.ends[1]);
+        if d0.min(d1) > 5.0 || (d0 - d1).abs() < 5.0 {
+            extended.push(seg); // runway crossing or not on the centreline: keep as is
+            continue;
+        }
+        // Orient centreline end first.
+        let mut exit: Vec<Coord<f64>> = if d0 <= d1 { seg.0.clone() } else { seg.0.iter().rev().copied().collect() };
+        let edge_pt = *exit.last().unwrap();
+        // Find the outside piece continuing from the runway edge.
+        let idx = outside.iter().position(|o| ops::dist(o.0[0], edge_pt) < 1.0 || ops::dist(*o.0.last().unwrap(), edge_pt) < 1.0);
+        if let Some(i) = idx {
+            let o = outside.remove(i);
+            let mut walk: Vec<Coord<f64>> = if ops::dist(o.0[0], edge_pt) < 1.0 { o.0.clone() } else { o.0.iter().rev().copied().collect() };
+            let mut acc = 0.0;
+            let mut cut: Option<(usize, Coord<f64>)> = None;
+            'seg: for k in 1..walk.len() {
+                let (a, b) = (walk[k - 1], walk[k]);
+                for h in holds {
+                    for w in h.0.windows(2) {
+                        if let Some(q) = ops::seg_intersection(geo_types::Line::new(a, b), geo_types::Line::new(w[0], w[1])) {
+                            cut = Some((k, q));
+                            break 'seg;
+                        }
+                    }
+                }
+                let l = ops::dist(a, b);
+                if acc + l > 300.0 {
+                    let t = (300.0 - acc) / l;
+                    cut = Some((k, Coord { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) }));
+                    break;
+                }
+                acc += l;
+            }
+            let remainder: Vec<Coord<f64>> = match cut {
+                Some((k, q)) => {
+                    let rest: Vec<Coord<f64>> = std::iter::once(q).chain(walk[k..].iter().copied()).collect();
+                    walk.truncate(k);
+                    walk.push(q);
+                    rest
+                }
+                None => vec![],
+            };
+            exit.extend(walk.into_iter().skip(1));
+            if remainder.len() >= 2 && ops::length(&LineString(remainder.clone())) > 1.0 {
+                outside.push(LineString(remainder));
+            }
+        }
+        extended.push(LineString(exit));
+    }
+    for seg in extended {
         let idrwy = nearest_runway(&seg, runways, 200.0);
         let (idlin, _) = nearest_edge_name(&seg, edges, 60.0);
         let exittype = runways

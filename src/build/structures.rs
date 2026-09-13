@@ -72,18 +72,27 @@ pub fn compute_extent(ctx: &mut Ctx) {
 
 pub fn build(ctx: &mut Ctx) {
     let extent = ctx.extent.clone();
-    let keep_poly = |p: &Polygon<f64>| extent.0.iter().any(|e| e.intersects(p));
-    let keep_line = |l: &LineString<f64>| extent.0.iter().any(|e| e.intersects(l));
-    let keep_pt = |c: Coord<f64>| ops::mp_contains_point(&extent, c);
     let pavement_all = ops::mp_union(&ctx.pavement_mp, &ctx.runway_mp);
+    // DO-272 capture rule (as Navigraph applies it): structures and roads within 90 m of a
+    // runway or 50 m of any other movement area. Terminals and towers are always kept.
+    let stand_polys: Vec<Polygon<f64>> = ctx.layer(Layer::ParkingStandArea).iter().filter_map(|f| if let geo_types::Geometry::Polygon(p) = &f.geom { Some(p.clone()) } else { None }).collect();
+    let movement = ops::mp_union(&ctx.pavement_mp, &ops::union_all(&stand_polys));
+    let near = ops::mp_union(&ops::buffer_multi(&movement, 50.0), &ops::buffer_multi(&ctx.runway_mp, 90.0));
+    let near = if near.0.is_empty() { extent.clone() } else { near };
+    let keep_poly = |p: &Polygon<f64>| near.0.iter().any(|e| e.intersects(p));
+    let keep_line = |l: &LineString<f64>| near.0.iter().any(|e| e.intersects(l));
+    let keep_pt = |c: Coord<f64>| ops::mp_contains_point(&near, c);
 
     // Buildings.
     for b in &ctx.src.buildings {
         let Some(p) = poly_from(ctx, &b.outer, &b.holes) else { continue };
-        if !keep_poly(&p) {
+        let landmark = matches!(b.kind, crate::model::codes::plysttyp::TERMINAL | crate::model::codes::plysttyp::CONTROL_TOWER | crate::model::codes::plysttyp::HANGAR);
+        if !keep_poly(&p) && !(landmark && extent.0.iter().any(|e| e.intersects(&p))) {
             continue;
         }
-        ctx.push(AmdbFeature::new(Layer::VerticalPolygonalStructure, p).with("plysttyp", b.kind).with("name", opt(b.name.clone())).with("height", opt(b.height_m)).with("levels", opt(b.levels)).with("elev", serde_json::Value::Null).with("material", serde_json::Value::Null).with("source", b.source));
+        // Only landmarks carry a name on the map (Navigraph labels terminals, towers,
+        // hangars); cargo sheds and offices would just clutter the display.
+        ctx.push(AmdbFeature::new(Layer::VerticalPolygonalStructure, p).with("plysttyp", b.kind).with("name", opt(if landmark { b.name.clone() } else { None })).with("height", opt(b.height_m)).with("levels", opt(b.levels)).with("elev", serde_json::Value::Null).with("material", serde_json::Value::Null).with("source", b.source));
     }
     // Point structures.
     for s in &ctx.src.point_structures {
@@ -111,7 +120,7 @@ pub fn build(ctx: &mut Ctx) {
             }
             let w = l.width_m.unwrap_or(5.0);
             let mut mp = ops::buffer_line(&ls, w / 2.0);
-            mp = ops::mp_intersection(&mp, &extent);
+            mp = ops::mp_intersection(&mp, &near);
             mp = ops::mp_difference(&mp, &pavement_all);
             for p in ops::tidy_multi(&mp) {
                 if p.unsigned_area() < 4.0 {
@@ -137,7 +146,18 @@ pub fn build(ctx: &mut Ctx) {
         if !keep_poly(&p) {
             continue;
         }
-        let parts: Vec<Polygon<f64>> = if layer == Layer::Water { ops::tidy_multi(&ops::mp_intersection(&MultiPolygon(vec![p.clone()]), &extent)) } else { vec![p] };
+        let parts: Vec<Polygon<f64>> = match layer {
+            Layer::Water => ops::tidy_multi(&ops::mp_intersection(&MultiPolygon(vec![p.clone()]), &extent)),
+            // OSM construction sites often still cover pavement the scenery already has
+            // in use; the pavement wins and the site keeps only what lies outside it.
+            Layer::ConstructionArea => {
+                let before = p.unsigned_area();
+                let rest = ops::tidy_multi(&ops::mp_difference(&MultiPolygon(vec![p.clone()]), &ctx.pavement_mp));
+                let after: f64 = rest.iter().map(|q| q.unsigned_area()).sum();
+                if before > 0.0 && after / before < 0.25 { vec![] } else { rest.into_iter().filter(|q| q.unsigned_area() > 400.0).collect() }
+            }
+            _ => vec![p],
+        };
         for p in parts {
             match layer {
                 Layer::Water => ctx.push(AmdbFeature::new(layer, p).with("feattype", 1).with("idrwy", serde_json::Value::Null).with("name", opt(a.name.clone())).with("surftype", surftype::WATER).with("source", a.source)),

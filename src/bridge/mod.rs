@@ -8,6 +8,7 @@ pub mod compat;
 pub mod hosts;
 pub mod patcher;
 pub mod server;
+pub mod settings;
 pub mod store;
 pub mod tls;
 

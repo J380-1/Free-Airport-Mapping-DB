@@ -4,8 +4,9 @@
 //! machine through the hosts file, answers over HTTPS with a locally trusted
 //! certificate, and removes the redirect again when it stops.
 
+use super::settings::Settings;
+use super::store::{Retention, Store};
 use super::{hosts, patcher, server, tls};
-use super::store::Store;
 use crate::build::BuildOptions;
 use crate::cache::Cache;
 use crate::output::{Formats, Projection};
@@ -24,9 +25,12 @@ struct Cli {
 
 #[derive(Args, Clone)]
 struct DataArgs {
-    /// Directory with generated airports (out/<ICAO>/...). Missing airports are built here on demand.
-    #[arg(long, default_value = "out")]
-    out: PathBuf,
+    /// Directory with generated airports (<ICAO>/...). Default: the cache folder chosen at first run.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Keep nothing on disk for this run (overrides the saved setting).
+    #[arg(long = "no-cache")]
+    no_cache: bool,
     /// Optional X-Plane install to read apt.dat from instead of the Gateway.
     #[arg(long = "xplane-dir")]
     xplane_dir: Option<PathBuf>,
@@ -51,6 +55,9 @@ struct ServeArgs {
     /// Do not touch the hosts file or the certificate store (HTTP/HTTPS only, no redirect).
     #[arg(long = "no-hosts")]
     no_hosts: bool,
+    /// Do not patch the iniBuilds A350 EFB (its OANS then needs a Navigraph subscription).
+    #[arg(long = "no-patch")]
+    no_patch: bool,
 }
 
 #[derive(Subcommand)]
@@ -66,8 +73,10 @@ enum Cmd {
         #[arg(long)]
         simbrief: Option<String>,
     },
-    /// Show redirect, certificate and aircraft status.
+    /// Show redirect, certificate, storage and aircraft status.
     Status,
+    /// Change the storage settings (cache on/off, folder, size limit) asked at first run.
+    Setup,
     /// Remove the hosts-file redirect and the local certificate authority (cleanup after a crash).
     Cleanup,
     /// Add the server to the simulator's exe.xml so it starts with the sim.
@@ -88,10 +97,33 @@ enum Cmd {
     },
 }
 
-fn config(d: &DataArgs) -> Config {
+/// Saved settings (asking on the first run), with this run's overrides applied.
+fn effective_settings(d: &DataArgs) -> Result<Settings> {
+    let mut s = Settings::load_or_setup()?;
+    if d.no_cache {
+        s.cache = false;
+    }
+    Ok(s)
+}
+
+fn make_store(d: &DataArgs, s: &Settings) -> Result<Store> {
+    let mut store = Store::new(config(d, s))?;
+    store.retention = if d.out.is_some() {
+        Retention::KeepAll
+    } else if !s.cache {
+        Retention::Ephemeral
+    } else if s.limit_bytes().is_some() {
+        Retention::Limit(s.clone())
+    } else {
+        Retention::KeepAll
+    };
+    Ok(store)
+}
+
+fn config(d: &DataArgs, s: &Settings) -> Config {
     Config {
-        out: d.out.clone(),
-        cache: Cache::new(d.cache.clone(), false, false),
+        out: d.out.clone().unwrap_or_else(|| s.airports_dir()),
+        cache: Cache::new(d.cache.clone().or_else(|| s.downloads_dir()), false, false),
         http: Http::new(300, 250),
         formats: Formats { geojson: true, pbf: false },
         projection: Projection::Wgs84,
@@ -128,6 +160,8 @@ fn relaunch_elevated() -> Result<()> {
 
 fn serve(a: ServeArgs) -> Result<()> {
     let domain = super::NAVIGRAPH_AMDB_DOMAIN;
+    // Ask the storage questions in the user's own window, before any elevation.
+    let settings = effective_settings(&a.data)?;
     let mut https = None;
     if !a.no_hosts {
         if !hosts::writable() {
@@ -150,7 +184,20 @@ fn serve(a: ServeArgs) -> Result<()> {
         let m = tls::ensure(domain)?;
         https = Some((a.https_port, m.cert_pem, m.key_pem));
     }
-    let store = Store::new(config(&a.data))?;
+    if !a.no_patch {
+        for d in communities(&[]) {
+            match patcher::patch_a350(&d, false) {
+                Ok(files) => {
+                    for f in files {
+                        crate::term::success(&format!("iniBuilds A350 EFB patched to hand its OANS a token (backup kept, `unpatch` restores): {}", f.path.display()));
+                    }
+                }
+                Err(e) => crate::term::warn(&format!("could not patch the A350 EFB in {}: {e:#}", d.display())),
+            }
+        }
+    }
+    crate::term::info(&format!("Storage: {}", if let Some(o) = &a.data.out { format!("airports in {} (kept, no limit)", o.display()) } else { settings.describe() }));
+    let store = make_store(&a.data, &settings)?;
     let result = server::serve(store, server::Listen { http_port: if a.http_port == 0 { None } else { Some(a.http_port) }, https });
     if !a.no_hosts {
         let _ = hosts::remove();
@@ -173,7 +220,8 @@ pub fn run() -> Result<()> {
     match cli.cmd {
         Cmd::Serve(a) => serve(a),
         Cmd::Prefetch { data, icaos, simbrief } => {
-            let cfg = config(&data);
+            let settings = effective_settings(&data)?;
+            let cfg = config(&data, &settings);
             let mut icaos = icaos;
             if let Some(user) = &simbrief {
                 let ofp = crate::sources::simbrief::fetch(&cfg.http, user)?;
@@ -183,7 +231,7 @@ pub fn run() -> Result<()> {
             if icaos.is_empty() {
                 return Err(anyhow!("give ICAO codes or --simbrief to prefetch"));
             }
-            let store = Store::new(cfg)?;
+            let store = make_store(&data, &settings)?;
             for i in icaos {
                 match store.airport(&i) {
                     Ok(a) => println!("{}: {} features ready", a.icao, a.layers.values().map(Vec::len).sum::<usize>()),
@@ -197,15 +245,31 @@ pub fn run() -> Result<()> {
             println!("hosts redirect for {domain}: {}", if hosts::is_installed(domain) { "ACTIVE" } else { "not installed" });
             println!("local CA trusted by Windows: {}", if tls::is_trusted() { "yes" } else { "no" });
             println!("certificate folder: {}", tls::data_dir().display());
+            match Settings::load() {
+                Some(s) => println!("storage: {}  (settings in {})", s.describe(), Settings::path().display()),
+                None => println!("storage: not set up yet (the first `serve` asks)"),
+            }
             for d in communities(&[]) {
                 println!("Community: {}", d.display());
                 for c in patcher::scan(&d) {
                     println!("  {}  references the Navigraph AMDB host ({} refs) -> covered by the redirect", c.package, c.literal_hits + c.template_hits);
                 }
+                for (pkg, f) in patcher::scan_wasm(&d) {
+                    println!("  {}  WASM gauge {} uses the Navigraph AMDB host -> covered by the redirect", pkg, f.file_name().unwrap_or_default().to_string_lossy());
+                }
+                for (pkg, f, patched) in patcher::scan_a350(&d) {
+                    println!("  {}  EFB token handler {}: {}", pkg, if patched { "PATCHED (OANS works without a Navigraph subscription)" } else { "not patched (run `serve` or `patch`)" }, f.file_name().unwrap_or_default().to_string_lossy());
+                }
                 for f in patcher::load_record(&d).files {
                     println!("  PATCHED {}", f.path.display());
                 }
             }
+            Ok(())
+        }
+        Cmd::Setup => {
+            let s = Settings::wizard(&Settings::load().unwrap_or_default())?;
+            s.save()?;
+            crate::term::success(&format!("Saved: {}  ({})", s.describe(), Settings::path().display()));
             Ok(())
         }
         Cmd::Cleanup => {
@@ -218,8 +282,10 @@ pub fn run() -> Result<()> {
         }
         Cmd::Autostart(a) => {
             let exe = std::env::current_exe()?;
-            let out = std::fs::canonicalize(&a.data.out).unwrap_or(a.data.out.clone());
-            let args = format!("serve --out \"{}\"", out.display());
+            let args = match &a.data.out {
+                Some(o) => format!("serve --out \"{}\"", std::fs::canonicalize(o).unwrap_or(o.clone()).display()),
+                None => "serve".to_string(),
+            };
             let written = patcher::install_autostart(&exe, &args)?;
             if written.is_empty() {
                 println!("no exe.xml found or entry already present");
@@ -233,6 +299,7 @@ pub fn run() -> Result<()> {
             let mut total = 0;
             for d in communities(&community) {
                 total += patcher::patch(&d, port, dry_run)?.len();
+                total += patcher::patch_a350(&d, dry_run)?.len();
             }
             println!("{}{} file(s) patched", if dry_run { "[dry-run] " } else { "" }, total);
             Ok(())

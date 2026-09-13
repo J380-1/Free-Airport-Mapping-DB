@@ -22,9 +22,21 @@ pub struct AirportData {
     pub layers: BTreeMap<Layer, Vec<AmdbFeature>>,
 }
 
+/// What happens to an airport's files after it has been loaded into memory.
+#[derive(Debug, Clone)]
+pub enum Retention {
+    /// Keep everything (the user manages the folder).
+    KeepAll,
+    /// Delete the folder once loaded (caching disabled).
+    Ephemeral,
+    /// Keep, but prune the cache folder to the configured limit.
+    Limit(super::settings::Settings),
+}
+
 pub struct Store {
     pub cfg: Config,
     pub out: PathBuf,
+    pub retention: Retention,
     index: AirportIndex,
     loaded: Mutex<HashMap<String, Arc<AirportData>>>,
     building: Mutex<HashMap<String, Arc<Mutex<()>>>>,
@@ -48,7 +60,7 @@ fn project_to_local(frame: &LocalFrame, g: &Geometry<f64>) -> Geometry<f64> {
 impl Store {
     pub fn new(cfg: Config) -> Result<Store> {
         let index = pipeline::load_index(&cfg)?;
-        Ok(Store { out: cfg.out.clone(), cfg, index, loaded: Mutex::new(HashMap::new()), building: Mutex::new(HashMap::new()) })
+        Ok(Store { out: cfg.out.clone(), cfg, index, retention: Retention::KeepAll, loaded: Mutex::new(HashMap::new()), building: Mutex::new(HashMap::new()) })
     }
 
     /// Airports offered to the client: everything already generated plus every
@@ -105,6 +117,18 @@ impl Store {
             }
         }
         let data = Arc::new(self.load_dir(&icao)?);
+        match &self.retention {
+            Retention::KeepAll => {}
+            Retention::Ephemeral => {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+            Retention::Limit(s) => {
+                let removed = super::settings::prune(s, &icao);
+                if !removed.is_empty() {
+                    crate::term::info(&format!("Cache over its {} MB limit: removed {}", s.limit_mb, removed.join(" ")));
+                }
+            }
+        }
         self.loaded.lock().unwrap().insert(icao, data.clone());
         Ok(data)
     }
@@ -132,6 +156,30 @@ impl Store {
             layers.insert(*l, kept);
         }
         Ok(AirportData { icao: icao.to_string(), frame, manifest, layers })
+    }
+
+    /// Airports around a point, nearest first: index airports (large/medium/small) plus
+    /// anything already generated. Not part of the Navigraph API; used by ported
+    /// moving maps whose sim-side airport search is unavailable.
+    pub fn nearest(&self, lat: f64, lon: f64, radius_km: f64, limit: usize) -> Vec<Value> {
+        let mut rows: Vec<(f64, Value)> = self
+            .index
+            .by_icao
+            .values()
+            .filter(|e| matches!(e.kind.as_deref(), Some("large_airport") | Some("medium_airport") | Some("small_airport")) || self.out.join(&e.icao).join("manifest.json").is_file())
+            .filter_map(|e| {
+                let d = pipeline::haversine_km(lat, lon, e.lat, e.lon);
+                if d > radius_km {
+                    return None;
+                }
+                let mut row = super::compat::search_row(&e.icao, e.iata.as_deref(), e.name.as_deref().unwrap_or(""), e.lat, e.lon, e.elevation_ft);
+                row["distance_nm"] = Value::from((d / 1.852 * 100.0).round() / 100.0);
+                row["kind"] = Value::from(e.kind.clone().unwrap_or_default());
+                Some((d, row))
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        rows.into_iter().take(limit).map(|(_, r)| r).collect()
     }
 
     pub fn loaded_count(&self) -> usize {

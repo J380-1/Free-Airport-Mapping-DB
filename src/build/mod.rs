@@ -44,7 +44,7 @@ impl Default for BuildOptions {
         Self {
             runway_shoulder_m: 7.5,
             taxiway_shoulder_m: 3.5,
-            derive_shoulders: true,
+            derive_shoulders: false,
             runway_markings: true,
             default_taxiway_width_m: 23.0,
             extent_margin_m: 200.0,

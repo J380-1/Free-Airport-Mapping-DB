@@ -3,6 +3,8 @@
 pub mod geobuf;
 pub mod geojson;
 pub mod manifest;
+pub mod chart;
+pub mod preview;
 
 use crate::geom::LocalFrame;
 use crate::model::{AmdbFeature, Layer, ALL_LAYERS};

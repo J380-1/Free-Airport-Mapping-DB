@@ -486,20 +486,85 @@ pub fn run(cfg: &Config, icaos: &[String]) -> Result<Summary> {
 }
 
 /// Resolve an airport selection into ICAOs using the index.
-pub fn select_icaos(cfg: &Config, explicit: &[String], country: Option<&str>, region: Option<&str>, prefix: Option<&str>, all: bool) -> Result<Vec<String>> {
-    let mut out: Vec<String> = explicit.iter().map(|s| s.to_uppercase()).collect();
-    if country.is_some() || region.is_some() || prefix.is_some() || all {
+/// How to pick airports from the index (all criteria are ANDed; explicit ICAO codes
+/// are always included).
+#[derive(Debug, Clone, Default)]
+pub struct Filter {
+    pub country: Option<String>,
+    pub region: Option<String>,
+    pub prefix: Option<String>,
+    pub all: bool,
+    /// Centre (lat, lon) and radius in km.
+    pub near: Option<(f64, f64, f64)>,
+    /// West, south, east, north in degrees.
+    pub bbox: Option<[f64; 4]>,
+    /// OurAirports kinds, matched as substrings ("large" matches "large_airport").
+    pub kinds: Vec<String>,
+    pub min_runway_ft: Option<f64>,
+    pub iata: Vec<String>,
+    /// Case-insensitive substring of the name or city.
+    pub search: Option<String>,
+    /// ICAO codes (4 chars) or prefixes to drop from the result.
+    pub exclude: Vec<String>,
+    pub offset: usize,
+    pub limit: Option<usize>,
+}
+
+impl Filter {
+    pub fn needs_index(&self) -> bool {
+        self.country.is_some() || self.region.is_some() || self.prefix.is_some() || self.all || self.near.is_some() || self.bbox.is_some() || !self.kinds.is_empty() || self.min_runway_ft.is_some() || !self.iata.is_empty() || self.search.is_some()
+    }
+
+    fn excluded(&self, icao: &str) -> bool {
+        self.exclude.iter().any(|x| if x.len() >= 4 { icao.eq_ignore_ascii_case(x) } else { icao.to_uppercase().starts_with(&x.to_uppercase()) })
+    }
+}
+
+/// Great-circle distance in km.
+pub fn haversine_km(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    let (p1, p2) = (lat1.to_radians(), lat2.to_radians());
+    let dp = p2 - p1;
+    let dl = (lon2 - lon1).to_radians();
+    let a = (dp / 2.0).sin().powi(2) + p1.cos() * p2.cos() * (dl / 2.0).sin().powi(2);
+    2.0 * 6371.0088 * a.sqrt().asin()
+}
+
+/// Airports selected by explicit codes plus the filter, sorted and deduplicated.
+pub fn select(cfg: &Config, explicit: &[String], f: &Filter) -> Result<Vec<String>> {
+    let mut out: Vec<String> = explicit.iter().map(|s| s.trim().to_uppercase()).filter(|s| !s.is_empty()).collect();
+    if f.needs_index() {
         let idx = load_index(cfg)?;
-        let mut v = idx.icaos_matching(country, region, prefix);
-        if all && country.is_none() && region.is_none() && prefix.is_none() {
-            v = idx.by_icao.keys().cloned().collect();
-            v.sort();
-        }
+        let mut v: Vec<String> = idx
+            .by_icao
+            .values()
+            .filter(|e| f.country.as_deref().map_or(true, |c| e.country.as_deref().map_or(false, |x| x.eq_ignore_ascii_case(c))))
+            .filter(|e| f.region.as_deref().map_or(true, |r| e.region.as_deref().map_or(false, |x| x.to_uppercase().starts_with(&r.to_uppercase()))))
+            .filter(|e| f.prefix.as_deref().map_or(true, |p| e.icao.starts_with(&p.to_uppercase())))
+            .filter(|e| f.near.map_or(true, |(lat, lon, km)| haversine_km(lat, lon, e.lat, e.lon) <= km))
+            .filter(|e| f.bbox.map_or(true, |[w, s, ea, n]| e.lon >= w && e.lon <= ea && e.lat >= s && e.lat <= n))
+            .filter(|e| f.kinds.is_empty() || e.kind.as_deref().map_or(false, |k| f.kinds.iter().any(|want| k.to_ascii_lowercase().contains(&want.to_ascii_lowercase()))))
+            .filter(|e| f.min_runway_ft.map_or(true, |min| idx.runways.get(&e.icao).map_or(false, |rs| rs.iter().any(|r| !r.closed && r.length_ft.unwrap_or(0.0) >= min))))
+            .filter(|e| f.iata.is_empty() || e.iata.as_deref().map_or(false, |i| f.iata.iter().any(|want| want.eq_ignore_ascii_case(i))))
+            .filter(|e| f.search.as_deref().map_or(true, |q| {
+                let q = q.to_lowercase();
+                e.name.as_deref().map_or(false, |n| n.to_lowercase().contains(&q)) || e.city.as_deref().map_or(false, |c| c.to_lowercase().contains(&q))
+            }))
+            .map(|e| e.icao.clone())
+            .collect();
+        v.sort();
+        let v: Vec<String> = v.into_iter().skip(f.offset).take(f.limit.unwrap_or(usize::MAX)).collect();
         out.extend(v);
     }
+    out.retain(|i| !f.excluded(i));
     out.sort();
     out.dedup();
     Ok(out)
+}
+
+/// Backwards-compatible wrapper around [`select`].
+pub fn select_icaos(cfg: &Config, explicit: &[String], country: Option<&str>, region: Option<&str>, prefix: Option<&str>, all: bool) -> Result<Vec<String>> {
+    let f = Filter { country: country.map(str::to_string), region: region.map(str::to_string), prefix: prefix.map(str::to_string), all, ..Default::default() };
+    select(cfg, explicit, &f)
 }
 
 pub fn default_mirrors() -> Vec<String> {

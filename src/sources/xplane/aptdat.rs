@@ -6,6 +6,18 @@ use anyhow::{bail, Context, Result};
 use geo_types::Coord;
 
 /// Parse one airport (the first `1`/`16`/`17` block, or the one matching `want_icao`).
+/// Runway designators as ICAO writes them: a single-digit number is zero-padded
+/// ("9R" -> "09R"); anything else (helipads "H1", "18", "36L") is left alone.
+pub fn norm_rwy(s: &str) -> String {
+    let t = s.trim();
+    let digits = t.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits == 1 && t.len() <= 2 && t[1..].chars().all(|c| matches!(c, 'L' | 'R' | 'C' | 'W' | 'T' | 'S' | 'G')) {
+        format!("0{t}")
+    } else {
+        t.to_string()
+    }
+}
+
 pub fn parse(text: &str, want_icao: Option<&str>) -> Result<SourceAirport> {
     let mut lines = text.lines().map(|l| l.trim_end_matches('\r'));
     // Skip header lines: "I"/"A" then version line.
@@ -132,7 +144,7 @@ pub fn parse(text: &str, want_icao: Option<&str>) -> Result<SourceAirport> {
                 let edge = i(rest[5]);
                 let end = |o: usize| -> RunwayEnd {
                     RunwayEnd {
-                        ident: rest[o].to_string(),
+                        ident: norm_rwy(rest[o]),
                         pos: Coord { x: f(rest[o + 2]), y: f(rest[o + 1]) },
                         displaced_m: f(rest[o + 3]),
                         blastpad_m: f(rest[o + 4]),
@@ -173,7 +185,7 @@ pub fn parse(text: &str, want_icao: Option<&str>) -> Result<SourceAirport> {
             102 => {
                 if rest.len() >= 7 {
                     ap.helipads.push(Helipad {
-                        ident: rest[0].to_string(),
+                        ident: norm_rwy(rest[0]),
                         pos: Coord { x: f(rest[2]), y: f(rest[1]) },
                         heading_deg: f(rest[3]),
                         length_m: f(rest[4]),
@@ -247,7 +259,7 @@ pub fn parse(text: &str, want_icao: Option<&str>) -> Result<SourceAirport> {
                         7 | 8 => lighting::APAPI,
                         _ => lighting::UNKNOWN,
                     };
-                    let rwy = rest.get(5).map(|s| s.to_string());
+                    let rwy = rest.get(5).map(|s| norm_rwy(s));
                     ap.lights.push(LightObject {
                         pos: Coord { x: f(rest[1]), y: f(rest[0]) },
                         kind,
@@ -300,7 +312,7 @@ pub fn parse(text: &str, want_icao: Option<&str>) -> Result<SourceAirport> {
             }
             1204 => {
                 if let (Some(idx), true) = (last_edge, rest.len() >= 2) {
-                    let rwys = rest[1].split(',').map(|s| s.to_string()).collect();
+                    let rwys = rest[1].split(',').map(norm_rwy).collect();
                     ap.route_edges[idx].active_zones.push((rest[0].to_string(), rwys));
                 }
             }
@@ -461,6 +473,10 @@ mod tests {
         assert_eq!(ap.runways.len(), 1);
         let r = &ap.runways[0];
         assert_eq!(r.ends[0].ident, "18");
+        assert_eq!(norm_rwy("9R"), "09R");
+        assert_eq!(norm_rwy("9"), "09");
+        assert_eq!(norm_rwy("27L"), "27L");
+        assert_eq!(norm_rwy("H1"), "H1");
         assert_eq!(r.ends[1].ident, "36");
         assert!((r.ends[1].displaced_m - 620.0).abs() < 1e-9);
         assert_eq!(r.ends[0].marking, rwymktyp::PRECISION);

@@ -5,7 +5,13 @@
 //! Handled forms:
 //! * literal `https://amdb.api.navigraph.com` (FlyByWire builds and anything on the fbw-sdk);
 //! * Navigraph SDK templates `https://amdb.api.${fn()}` (the host is computed), which
-//!   become `http://127.0.0.1:PORT/${fn()}` — the server ignores the extra prefix.
+//!   become `http://127.0.0.1:PORT/${fn()}` — the server ignores the extra prefix;
+//! * the iniBuilds A350 EFB, whose OANS gauge (WASM) only fetches AMDB data once the
+//!   EFB has handed it a Navigraph token over the comm bus. The EFB answers the
+//!   gauge's `RequestNavigraphAccessToken` with an empty string unless a Navigraph
+//!   account with a subscription is signed in, so that handler is rewritten to always
+//!   answer with a placeholder token. The bridge ignores the bearer token, and the
+//!   gauge's requests still reach it through the hosts-file redirect.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -25,6 +31,121 @@ pub struct PatchedFile {
 }
 
 pub const BACKUP_SUFFIX: &str = ".amdb-bridge.bak";
+
+/// Opaque placeholder the patched A350 EFB hands to its OANS gauge; the bridge does
+/// not check bearer tokens, it only needs the gauge to believe it has one.
+pub const A350_TOKEN: &str = "amdb-bridge-local";
+const A350_MARK: &str = "/*amdb-bridge*/";
+const A350_HANDLER: &str = "'RequestNavigraphAccessToken',()=>{";
+
+/// Index just past the `}` that closes the block opened at `open` (which must be a `{`),
+/// skipping string literals. None if the text is unbalanced.
+fn block_end(text: &str, open: usize) -> Option<usize> {
+    let b = text.as_bytes();
+    let mut depth = 0usize;
+    let mut i = open;
+    while i < b.len() {
+        match b[i] {
+            b'\'' | b'"' | b'`' => {
+                let q = b[i];
+                i += 1;
+                while i < b.len() && b[i] != q {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + 1);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Rewrite the A350 EFB token handler. None when the text is not an A350 EFB bundle or
+/// is already patched.
+pub fn patch_a350_text(text: &str) -> Option<String> {
+    if text.contains(A350_MARK) {
+        return None;
+    }
+    let start = text.find(A350_HANDLER)?;
+    let open = start + A350_HANDLER.len() - 1;
+    let end = block_end(text, open)?;
+    let push = format!("Coherent.call('COMM_BUS_WASM_CALLBACK','SetNavigraphAccessToken','{A350_TOKEN}')");
+    let mut out = String::with_capacity(text.len() + 400);
+    out.push_str(&text[..open]);
+    out.push_str(&format!("{{{A350_MARK}{push};}}"));
+    out.push_str(&text[end..]);
+    // The gauge may register its comm-bus handler after the EFB starts, so also push
+    // the token periodically; a repeated set is harmless.
+    out.push_str(&format!("\n{A350_MARK}setInterval(()=>{{try{{{push};}}catch(e){{}}}},30000);\n"));
+    Some(out)
+}
+
+/// A350 EFB bundles in a Community folder: (package, file, already patched).
+pub fn scan_a350(community: &Path) -> Vec<(String, PathBuf, bool)> {
+    let mut out = Vec::new();
+    let Ok(rd) = fs::read_dir(community) else { return out };
+    for pkg in rd.flatten() {
+        let pdir = pkg.path();
+        if !pdir.is_dir() {
+            continue;
+        }
+        let mut js = Vec::new();
+        walk_js(&pdir.join("html_ui"), &mut js);
+        for f in js {
+            let name = f.file_name().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+            if !name.starts_with("ini-efb") {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&f) else { continue };
+            if text.contains(A350_HANDLER) || text.contains(A350_MARK) {
+                out.push((pkg.file_name().to_string_lossy().to_string(), f, text.contains(A350_MARK)));
+            }
+        }
+    }
+    out
+}
+
+/// Apply the A350 EFB token patch in a Community folder (backups kept, recorded for
+/// `unpatch`). Returns the files changed.
+pub fn patch_a350(community: &Path, dry_run: bool) -> Result<Vec<PatchedFile>> {
+    let mut record = load_record(community);
+    let mut done = Vec::new();
+    for (pkg, path, patched) in scan_a350(community) {
+        if patched {
+            continue;
+        }
+        let text = fs::read_to_string(&path)?;
+        let Some(new_text) = patch_a350_text(&text) else { continue };
+        log::info!("{}{}: Navigraph token handler rewritten in {}", if dry_run { "[dry-run] " } else { "" }, pkg, path.display());
+        if dry_run {
+            done.push(PatchedFile { path: path.clone(), backup: PathBuf::new(), replacements: 1 });
+            continue;
+        }
+        let backup = PathBuf::from(format!("{}{}", path.display(), BACKUP_SUFFIX));
+        if !backup.exists() {
+            fs::copy(&path, &backup).with_context(|| format!("backup {}", path.display()))?;
+        }
+        fs::write(&path, new_text)?;
+        let pf = PatchedFile { path: path.clone(), backup, replacements: 1 };
+        record.files.retain(|f| f.path != pf.path);
+        record.files.push(pf.clone());
+        done.push(pf);
+    }
+    if !dry_run && !done.is_empty() {
+        save_record(community, &record)?;
+    }
+    Ok(done)
+}
 
 /// Candidate Community folders for MSFS 2020 and 2024 (Store and Steam) on this machine.
 pub fn detect_community_dirs() -> Vec<PathBuf> {
@@ -100,6 +221,41 @@ pub fn scan(community: &Path) -> Vec<Candidate> {
             let template = text.matches("https://amdb.api.${").count();
             if literal + template > 0 {
                 out.push(Candidate { package: pkg.file_name().to_string_lossy().to_string(), path: f, literal_hits: literal, template_hits: template });
+            }
+        }
+    }
+    out
+}
+
+/// Packages whose compiled WASM gauges talk to the Navigraph AMDB host (iniBuilds
+/// A350 and similar). These cannot be patched; only the hosts-file redirect reaches them.
+pub fn scan_wasm(community: &Path) -> Vec<(String, PathBuf)> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(rd) = fs::read_dir(dir) else { return };
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().and_then(|s| s.to_str()).map_or(false, |x| x.eq_ignore_ascii_case("wasm")) {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let Ok(rd) = fs::read_dir(community) else { return out };
+    let needle = super::NAVIGRAPH_AMDB_HOST.as_bytes();
+    for pkg in rd.flatten() {
+        let pdir = pkg.path();
+        if !pdir.is_dir() {
+            continue;
+        }
+        let mut wasm = Vec::new();
+        walk(&pdir.join("SimObjects"), &mut wasm);
+        for f in wasm {
+            let Ok(bytes) = fs::read(&f) else { continue };
+            if bytes.windows(needle.len()).any(|w| w == needle) {
+                out.push((pkg.file_name().to_string_lossy().to_string(), f));
+                break;
             }
         }
     }
@@ -204,6 +360,17 @@ pub fn install_autostart(exe: &Path, args: &str) -> Result<Vec<PathBuf>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a350_handler_is_rewritten() {
+        let src = "x['on']('RequestNavigraphAccessToken',()=>{const a='{';if(DataStore['get']('a350_ng_isauthed')=='0'){Coherent['call']('COMM_BUS_WASM_CALLBACK','SetNavigraphAccessToken','');return;}}),this['t']=setInterval(()=>{},1);";
+        let out = patch_a350_text(src).unwrap();
+        assert!(out.contains("'RequestNavigraphAccessToken',()=>{/*amdb-bridge*/Coherent.call('COMM_BUS_WASM_CALLBACK','SetNavigraphAccessToken','amdb-bridge-local');}),this['t']=setInterval"));
+        assert!(!out.contains("a350_ng_isauthed"));
+        assert!(out.trim_end().ends_with("},30000);"));
+        assert!(patch_a350_text(&out).is_none(), "idempotent");
+        assert!(patch_a350_text("nothing here").is_none());
+    }
 
     #[test]
     fn patches_and_restores() {

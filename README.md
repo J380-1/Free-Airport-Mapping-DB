@@ -24,9 +24,11 @@ Two binaries:
 
 ```
 cargo build --release
-target\release\amdbgen build EDDF KJFK               # any ICAO, worldwide
-target\release\amdbgen build --simbrief YOUR_NAME    # your latest SimBrief OFP airports
-target\release\amdb-bridge serve --out out           # feed the aircraft (see below)
+target\release\amdbgen build EDDF KJFK                    # any ICAO, worldwide
+target\release\amdbgen build --simbrief YOUR_NAME         # your latest SimBrief OFP airports
+target\release\amdbgen build --country DE --type large --chart   # a batch, with PDF charts
+target\release\amdbgen chart EDDF --open                  # Jeppesen-style airport diagram (PDF)
+target\release\amdb-bridge serve                          # feed the aircraft (see below)
 ```
 
 ## Sources
@@ -63,9 +65,36 @@ Properties use the DO-272 names (`idarpt`, `idrwy`, `idthr`, `idlin`, `idstd`,
 source (hotspot, ATC blind spot, survey points) are written empty with the reason in
 the manifest and filled from `overrides/`.
 
-Flags: `--profile full|map`, `--layers a,b,c`, `--format geojson,pbf`,
-`--projection wgs84|metres`, `--country IN`, `--icao-prefix ED`, `--all`,
-`--osm osmapi|overpass|off`, `--faa off`, `-v`.
+### Selecting airports
+
+Positional ICAO codes, `--from-file list.txt`, `--simbrief NAME`, or any mix of:
+
+| Flag | Picks |
+|---|---|
+| `--country DE,AT,CH` | ISO countries |
+| `--region VI` / `--icao-prefix ED` | aptmeta region / ICAO prefix |
+| `--near 48.86,2.35 --within 150` | within a radius (km) of a point |
+| `--bbox 5.9,47.3,15.0,55.1` | inside a box (west,south,east,north) |
+| `--type large,medium` | OurAirports kinds: large, medium, small, heliport, seaplane, closed |
+| `--min-runway-ft 8000` | at least one open runway that long |
+| `--iata CDG,ORY` / `--search "de gaulle"` | by IATA, or name/city text |
+| `--exclude LFPG,ET` | drop codes or prefixes |
+| `--limit 50 --offset 100` | page through big selections |
+| `--all` | everything in the index |
+
+`amdbgen list ...` shows what a selection resolves to, `amdbgen info LFPG` what the
+index knows (runways, Gateway scenery), `amdbgen search heathrow` finds codes.
+
+### Batch control
+
+`--skip-existing` (don't rebuild what's there), `--retry-failed` (from index.json),
+`--dry-run`, `--clean`, `--chunk 20` (bounded memory / API load), `--fail-fast`,
+`--chart` / `--viewer` / `--zip` (per airport), `--report batch.json`, `-j 4`.
+Also: `amdbgen stats [ICAO...]`, `amdbgen zip --all`, `amdbgen clean EDDF`,
+`amdbgen layers`, `amdbgen codes`, `amdbgen validate out/EDDF`.
+
+Output flags: `--profile full|map`, `--layers a,b,c`, `--format geojson,pbf`,
+`--projection wgs84|metres`, `--osm osmapi|overpass|off`, `--faa off`, `-v`.
 
 ## Aircraft bridge (`amdb-bridge`)
 
@@ -74,12 +103,18 @@ same features it has with Navigraph (map, labels, BTV, FMS runway highlight), be
 the aircraft code is untouched: only the address changes.
 
 ```
-amdb-bridge serve --out out                 # redirect + serve; keep it running while the sim is up
+amdb-bridge serve                           # redirect + serve; keep it running while the sim is up
 amdb-bridge prefetch EDDF KJFK              # or: --simbrief YOUR_NAME
-amdb-bridge status                          # redirect / certificate / detected aircraft
+amdb-bridge status                          # redirect / certificate / storage / detected aircraft
+amdb-bridge setup                           # change the storage answers given at first run
 amdb-bridge cleanup                         # remove redirect + certificate
-amdb-bridge autostart --out out             # start with the sim (exe.xml)
+amdb-bridge autostart                       # start with the sim (exe.xml)
 ```
+
+The first `serve` asks three questions: keep generated airports and downloads on
+disk, where, and up to how much space (oldest airports are dropped first). Answers
+live in `%LOCALAPPDATA%\amdb-bridge\config.json`; `--no-cache` keeps nothing for one
+run and `--out DIR` uses your own folder with no limit.
 
 `serve` asks for administrator rights, points `amdb.api.navigraph.com` at your PC
 through the hosts file, answers over HTTPS with a locally generated certificate it
@@ -90,12 +125,21 @@ schema follow Navigraph's own SDK (`@navigraph/amdb`) 1:1: `/v1/cycle`,
 enum values. No Navigraph account is needed. `patch` / `unpatch` are a no-admin
 alternative that rewrites the aircraft bundles instead.
 
-## Previews
+Aircraft: FlyByWire A380X (OANS + BTV, tested), FlyByWire A32NX development builds,
+iniBuilds A350 (its EFB only hands the OANS gauge a token with a Navigraph
+subscription, so `serve` rewrites that one handler; backup kept, `unpatch` restores,
+`--no-patch` skips), and the GM5 A220 Airport Moving Map (see `tools/`).
+
+## Charts and previews
 
 ```
-python tools/oans_view.py out/EDDF viewer.html    # OANS-style moving map
-python tools/jepp_chart.py out/KJFK chart.html    # Jeppesen-style airport diagram
+amdbgen chart EDDF --open        # Jeppesen-style airport diagram, vector PDF (out/EDDF/chart.pdf)
+amdbgen view EDDF --open         # OANS-style moving-map page (out/EDDF/viewer.html)
 ```
+
+The PDF is drawn from the layers: runways with designators and dimensions, taxiway
+letters, aprons, terminals, holding positions, hotspots, stands, ARP, tower, runway
+table, frequencies, scale bar; portrait or landscape to fit the field.
 
 ## Layout
 
@@ -103,8 +147,8 @@ python tools/jepp_chart.py out/KJFK chart.html    # Jeppesen-style airport diagr
 - `src/geom` local metre projection, Bézier tessellation, buffers, boolean ops
 - `src/sources` xplane (gateway, local, apt.dat), osm (map API, Overpass, tags), index, faa, simbrief, overrides
 - `src/build` conflation and derivation: runways, markings, pavement, lines, stands, ASRN, structures, signs
-- `src/output` GeoJSON, Geobuf, manifest
-- `src/bridge` server, Navigraph-schema compat, hosts redirect, TLS, patcher
+- `src/output` GeoJSON, Geobuf, manifest, PDF chart, HTML preview
+- `src/bridge` server, Navigraph-schema compat, hosts redirect, TLS, patcher, settings
 - `src/pipeline.rs` fetch, merge, build, validate, write
 
 ## Licence

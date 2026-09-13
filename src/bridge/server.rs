@@ -26,10 +26,18 @@ fn header(k: &str, v: &str) -> Header {
 }
 
 fn respond_json(req: Request, status: u16, body: String) {
+    // CORS: panel browsers (Coherent GT) preflight any request carrying an Authorization
+    // header, and neither the spec nor that engine treat "*" as covering it, so echo the
+    // headers the client asked for, or a fixed list.
+    let asked = req.headers().iter().find(|h| h.field.equiv("Access-Control-Request-Headers")).map(|h| h.value.as_str().to_string()).filter(|s| !s.trim().is_empty());
+    let allow_headers = asked.unwrap_or_else(|| "Authorization, Accept, Content-Type, X-Requested-With, Origin".to_string());
     let mut resp = Response::from_string(body).with_status_code(status);
     resp.add_header(header("Content-Type", "application/json; charset=utf-8"));
     resp.add_header(header("Access-Control-Allow-Origin", "*"));
-    resp.add_header(header("Access-Control-Allow-Headers", "*"));
+    resp.add_header(header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS"));
+    resp.add_header(header("Access-Control-Allow-Headers", &allow_headers));
+    resp.add_header(header("Access-Control-Expose-Headers", "Content-Length, Content-Type"));
+    resp.add_header(header("Access-Control-Max-Age", "86400"));
     resp.add_header(header("Cache-Control", "no-store"));
     let _ = req.respond(resp);
 }
@@ -167,11 +175,31 @@ fn layer_collection(ap: &AirportData, layer: Layer, wgs84: bool, precision: Opti
     json!({"type":"FeatureCollection","features": arr})
 }
 
+/// Friendly name for the calling add-on, from its User-Agent.
+fn client_name(agent: &str) -> String {
+    let a = agent.to_ascii_lowercase();
+    if a.contains("flybywire") || a.contains("fbw") {
+        "FlyByWire".to_string()
+    } else if a.contains("inibuilds") || a.contains("a350") {
+        "iniBuilds".to_string()
+    } else if a.contains("wasm") || a.contains("msfs") || a.contains("flightsimulator") {
+        format!("MSFS ({agent})")
+    } else if a.contains("coherent") || a.contains("chrome") {
+        "aircraft panel (Coherent GT)".to_string()
+    } else if agent.is_empty() {
+        "unknown client".to_string()
+    } else {
+        agent.to_string()
+    }
+}
+
 fn handle(store: &Store, req: Request) {
     let url = req.url().to_string();
     let (path, query) = url.split_once('?').unwrap_or((&url, ""));
     let params = parse_query(query);
     if *req.method() == Method::Options {
+        let origin = req.headers().iter().find(|h| h.field.equiv("Origin")).map(|h| h.value.as_str().to_string()).unwrap_or_default();
+        crate::term::step(None, &format!("OPTIONS {}  CORS preflight from {}", path, if origin.is_empty() { "unknown origin".to_string() } else { origin }));
         respond_json(req, 204, String::new());
         return;
     }
@@ -180,8 +208,13 @@ fn handle(store: &Store, req: Request) {
         return;
     };
     let rest = path[pos + 4..].trim_matches('/');
+    let agent = req.headers().iter().find(|h| h.field.equiv("User-Agent")).map(|h| h.value.as_str().to_string()).unwrap_or_default();
+    let auth = req.headers().iter().any(|h| h.field.equiv("Authorization"));
+    crate::term::step(None, &format!("{} /v1/{}{}  from {}{}", req.method(), rest, if query.is_empty() { String::new() } else { format!("?{}", if query.len() > 90 { format!("{}…", &query[..90]) } else { query.to_string() }) }, client_name(&agent), if auth { " (with token)" } else { "" }));
     let t0 = std::time::Instant::now();
-    let projection = params.get("projection").and_then(Value::as_str).unwrap_or("NAVIGRAPH:ARP_AZEQ").to_string();
+    // Navigraph's API answers in EPSG:4326 (lat/lon) unless a projection is asked for;
+    // FlyByWire asks for NAVIGRAPH:ARP_AZEQ explicitly, the GM5 A220 map asks for nothing.
+    let projection = params.get("projection").and_then(Value::as_str).unwrap_or("EPSG:4326").to_string();
     let wgs84 = projection.eq_ignore_ascii_case("EPSG:4326");
     let precision = params.get("precision").and_then(Value::as_str).and_then(|s| s.parse::<f64>().ok());
     let mut parts = rest.splitn(2, '/');
@@ -194,6 +227,19 @@ fn handle(store: &Store, req: Request) {
             let results = store.search(q);
             crate::term::info(&format!("Search {:?}: {} airports", q, results.len()));
             respond_json(req, 200, Value::Array(results).to_string());
+        }
+        ("nearest", None) => {
+            let num = |k: &str| params.get(k).and_then(Value::as_str).and_then(|s| s.parse::<f64>().ok());
+            match (num("lat"), num("lon")) {
+                (Some(lat), Some(lon)) if lat.abs() <= 90.0 && lon.abs() <= 180.0 => {
+                    let radius = num("radius_km").unwrap_or(60.0).clamp(1.0, 500.0);
+                    let limit = num("limit").map(|v| v as usize).unwrap_or(16).clamp(1, 64);
+                    let rows = store.nearest(lat, lon, radius, limit);
+                    crate::term::info(&format!("Nearest to {lat:.3},{lon:.3} within {radius:.0} km: {}", rows.iter().filter_map(|r| r.get("idarpt").and_then(Value::as_str)).take(6).collect::<Vec<_>>().join(" ")));
+                    respond_json(req, 200, Value::Array(rows).to_string());
+                }
+                _ => respond_json(req, 400, json!({"error":"nearest needs lat= and lon= in degrees"}).to_string()),
+            }
         }
         ("", None) => respond_json(req, 200, json!({"service":"amdb-bridge","version":env!("CARGO_PKG_VERSION"),"loaded":store.loaded_count()}).to_string()),
         (icao, layer_name) if icao.len() == 4 && icao.chars().all(|c| c.is_ascii_alphanumeric()) => {
@@ -236,7 +282,10 @@ fn handle(store: &Store, req: Request) {
                 }
             }
         }
-        _ => respond_json(req, 404, json!({"error":"not found","path":rest}).to_string()),
+        _ => {
+            crate::term::warn(&format!("Unknown request /v1/{rest}"));
+            respond_json(req, 404, json!({"error":"not found","path":rest}).to_string())
+        }
     }
 }
 

@@ -10,4 +10,20 @@
   hosts-file redirect with local TLS, cleaned up on exit; bundle patcher as an
   alternative.
 - SimBrief import (`--simbrief`) to build or prefetch a flight's airports.
-- OANS-style and Jeppesen-style HTML previews (`tools/`).
+- OANS-style HTML preview (`amdbgen view`, `tools/`).
+- Jeppesen-style airport diagram as a vector PDF (`amdbgen chart`, `--chart`), portrait
+  or landscape to fit the field.
+- Batch CLI: selection by country, region, prefix, radius, box, type, runway length,
+  IATA, name search, exclusions and paging; `--skip-existing`, `--retry-failed`,
+  `--dry-run`, `--clean`, `--chunk`, `--fail-fast`, `--zip`, `--report`; `list`, `info`,
+  `search`, `view`, `stats`, `zip`, `clean`, `layers`, `codes`.
+- `amdb-bridge`: first-run storage setup (cache on/off, folder, size limit with oldest-
+  first pruning; `setup`, `--no-cache`); request logging; CORS preflight for clients
+  that send an Authorization header; EPSG:4326 default projection like Navigraph;
+  `/v1/nearest` for moving maps without a sim-side airport search; iniBuilds A350 EFB
+  token handler patched automatically so its OANS works without a subscription;
+  WASM-gauge aircraft detection in `status`.
+- Data: runway designators zero-padded, construction areas never cover live pavement,
+  building names kept only for terminals, towers and hangars, exit lines extended to
+  the first holding position, DO-272 building capture rule, no synthetic shoulders by
+  default.
