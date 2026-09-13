@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-09-13)
 
 - `amdbgen`: builds all 45 DO-272 / AMXM airport-mapping layers for any airport from
   the X-Plane Scenery Gateway, OpenStreetMap, OurAirports and (US only) FAA NASR, as
