@@ -1,0 +1,325 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="554" viewBox="0 0 760 554" font-family="Consolas,'Courier New',monospace" font-size="9.5">
+<rect width="760" height="554" fill="#0c0c0c"/>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0000;0.0140;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="24" xml:space="preserve">
+<tspan fill="#6a9955">❯ </tspan>
+<tspan fill="#d7ba7d">amdbgen build EDDF</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0000;0.0140;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="38" xml:space="preserve">
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Welcome to amdbgen, v0.1.0</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0000;0.0140;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="52" xml:space="preserve">
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Index: 44,692 airports from OurAirports</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0000;0.0140;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="66" xml:space="preserve">
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Index: 41,222 airports on the X-Plane Gateway</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0632;0.0772;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="94" xml:space="preserve">
+<tspan fill="#6a9955">▶ </tspan>
+<tspan fill="#6a9955" text-decoration="underline">start</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#cccccc">Fetching sources for 1 airport</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0947;0.1088;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="108" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">GET https://gateway.x-plane.com/apiv1/scenery/103368</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.0947;0.1088;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="122" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Scenery pack 103368 received: 1.44 MB zip, apt.dat 1.09 MB in 1.8 s</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1263;0.1404;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="136" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">X-Plane apt.dat: 4 runways, 77 pavements, 227 stands, 670 taxi routes</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1579;0.1719;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="150" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">GET https://api.openstreetmap.org/api/0.6/map  bbox 8.4996,49.9986 to 8.6182,50.0570</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1579;0.1719;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="164" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">OSM tile over 50k nodes, splitting into 4 (depth 1)</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1579;0.1719;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="178" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">OSM tile 1: 9.92 MB (38,120 new nodes)</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1579;0.1719;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="192" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">OSM tile 4: 8.31 MB (31,904 new nodes)</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.1895;0.2035;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="206" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">OpenStreetMap: 148,806 nodes, 23,305 ways in 9.6 s</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2526;0.2667;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="234" xml:space="preserve">
+<tspan fill="#6a9955">▶ </tspan>
+<tspan fill="#6a9955" text-decoration="underline">start</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#cccccc">Building 1 airport</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="248" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Runways, thresholds, intersections, shoulders in 41 ms</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="262" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Runway markings (Annex 14) in 12 ms</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="276" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Taxiway and apron pavement in 1.2 s</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="290" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Guidance lines, holds, exits in 380 ms</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="304" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Routing network (ASRN) in 95 ms</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="318" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">· </tspan>
+<tspan fill="#569cd6" text-decoration="underline">step</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Buildings, roads, water, frequencies, helipads in 610 ms</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="332" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676"> 2/45 </tspan>
+<tspan fill="#cccccc">aerodromereferencepoint           </tspan>
+<tspan fill="#6a9955">1 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="346" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676"> 5/45 </tspan>
+<tspan fill="#cccccc">apronelement                      </tspan>
+<tspan fill="#6a9955">40 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="360" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676"> 8/45 </tspan>
+<tspan fill="#cccccc">asrnedge                          </tspan>
+<tspan fill="#6a9955">1087 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="374" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676">18/45 </tspan>
+<tspan fill="#cccccc">hotspot                           </tspan>
+<tspan fill="#767676">empty</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="388" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676">26/45 </tspan>
+<tspan fill="#cccccc">runwayelement                     </tspan>
+<tspan fill="#6a9955">4 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="402" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676">36/45 </tspan>
+<tspan fill="#cccccc">taxiwayelement                    </tspan>
+<tspan fill="#6a9955">65 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="416" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676">37/45 </tspan>
+<tspan fill="#cccccc">taxiwayguidanceline               </tspan>
+<tspan fill="#6a9955">1337 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.2842;0.2982;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="430" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#b180d7">· </tspan>
+<tspan fill="#b180d7" text-decoration="underline">layer</tspan>
+<tspan fill="#cccccc">    </tspan>
+<tspan fill="#767676">44/45 </tspan>
+<tspan fill="#cccccc">verticalpolygonalstructure        </tspan>
+<tspan fill="#6a9955">560 features</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3158;0.3298;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="444" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Derived 45 layers, 10,999 features in 3.1 s</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3158;0.3298;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="458" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#569cd6">i </tspan>
+<tspan fill="#569cd6" text-decoration="underline">info</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#cccccc">Validated: no issues</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3474;0.3614;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="472" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#6a9955">✓ </tspan>
+<tspan fill="#6a9955" text-decoration="underline">success</tspan>
+<tspan fill="#cccccc">  </tspan>
+<tspan fill="#cccccc">Built EDDF in 4.0 s (10,999 features)</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3789;0.3930;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="486" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#cccccc">  </tspan>
+<tspan fill="#569cd6" text-decoration="underline">file</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#767676">out/EDDF/*.geojson </tspan>
+<tspan fill="#767676">— </tspan>
+<tspan fill="#569cd6">45 layers, 5.42 MB</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3789;0.3930;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="500" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#cccccc">  </tspan>
+<tspan fill="#569cd6" text-decoration="underline">file</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#767676">out/EDDF/*.pbf </tspan>
+<tspan fill="#767676">— </tspan>
+<tspan fill="#569cd6">45 layers, 1.70 MB</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.3789;0.3930;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="514" xml:space="preserve">
+<tspan fill="#767676">[EDDF] </tspan>
+<tspan fill="#767676">» </tspan>
+<tspan fill="#cccccc">  </tspan>
+<tspan fill="#569cd6" text-decoration="underline">file</tspan>
+<tspan fill="#cccccc">     </tspan>
+<tspan fill="#767676">out/EDDF/manifest.json </tspan>
+<tspan fill="#767676">— </tspan>
+<tspan fill="#569cd6">sources, counts, warnings</tspan>
+</text></g>
+<g opacity="0"><animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.4421;0.4561;0.9912;1" dur="5.70s" repeatCount="indefinite"/>
+<text x="12" y="542" xml:space="preserve">
+<tspan fill="#6a9955">✓ </tspan>
+<tspan fill="#6a9955" text-decoration="underline">success</tspan>
+<tspan fill="#cccccc">  </tspan>
+<tspan fill="#cccccc">Built 1 airport in 16.6 s</tspan>
+</text></g>
+<rect x="12" y="537" width="6" height="11" fill="#cccccc" opacity="0"><animate attributeName="opacity" values="0;0;1;0;1;0;1;0" keyTimes="0;0.4737;0.5526;0.6316;0.7105;0.7895;0.8684;1" dur="5.70s" repeatCount="indefinite"/></rect>
+</svg>

@@ -1,0 +1,272 @@
+<title>OANS Preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=B612+Mono:wght@400;700&display=swap">
+<style>
+  /* Single-theme by design: an avionics display is always a black ground. */
+  :root {
+    --ground: #050505;
+    --rwy: #f2f2f2;
+    --twy: #6a6a6a;
+    --apron: #4f4f4f;
+    --shoulder: #2a2a2a;
+    --road: #3a3a3a;
+    --bldg: #2f6fd6;
+    --terminal: #33c9d9;
+    --water: #16344f;
+    --line: #9c9c9c;
+    --label: #f2e11c;
+    --white: #ffffff;
+    --green: #43d15a;
+    --magenta: #ff5ce0;
+    --cyan: #33c9d9;
+    --panel: #101418;
+    --panel-border: #2a3540;
+    --muted: #8a949c;
+  }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--white); font-family: "B612 Mono", Consolas, "Courier New", monospace; overflow: hidden; }
+  #wrap { position: relative; width: 100vw; height: 100vh; padding-inline: 0; }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+  canvas.dragging { cursor: grabbing; }
+  .hud { position: absolute; pointer-events: none; font-size: clamp(12px, 1.6vw, 18px); letter-spacing: 0.02em; text-transform: uppercase; }
+  .hud.tl { left: 12px; top: 8px; display: grid; grid-template-columns: auto auto; column-gap: 12px; row-gap: 2px; }
+  .hud.tr { right: 12px; top: 8px; text-align: right; }
+  .hud.bl { left: 12px; bottom: 10px; color: var(--cyan); }
+  .hud .k { color: var(--white); }
+  .hud .v { color: var(--green); }
+  .hud .m { color: var(--magenta); }
+  .hud .c { color: var(--cyan); }
+  .hud .y { color: var(--label); }
+  .ctl { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .ctl button, .ctl label { font: inherit; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; background: var(--panel); color: var(--white); border: 1px solid var(--panel-border); padding: 6px 9px; border-radius: 2px; cursor: pointer; }
+  .ctl button[aria-pressed="true"] { background: var(--cyan); color: #000; border-color: var(--cyan); }
+  .ctl button:focus-visible, .ctl input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+  .ctl label { display: inline-flex; gap: 6px; align-items: center; }
+  .legend { position: absolute; left: 12px; top: 96px; background: rgba(16,20,24,0.85); border: 1px solid var(--panel-border); padding: 8px 10px; font-size: 11px; line-height: 1.7; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); display: none; }
+  .legend.show { display: block; }
+  .legend i { display: inline-block; width: 14px; height: 9px; margin-right: 8px; vertical-align: middle; }
+  @media (max-width: 600px) { .hud.tl { font-size: 11px; } .legend { top: 120px; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div id="wrap">
+  <canvas id="map" aria-label="Airport moving map"></canvas>
+  <div class="hud tl">
+    <span class="k">ARPT</span><span class="v" id="h-icao"></span>
+    <span class="k">RWY</span><span class="v" id="h-rwy"></span>
+    <span class="k">ELEV</span><span class="v" id="h-elev"></span>
+    <span class="k">FEAT</span><span class="v" id="h-feat"></span>
+  </div>
+  <div class="hud tr"><div id="h-name"></div><div class="c" id="h-src"></div></div>
+  <div class="hud bl" id="h-range"></div>
+  <div class="legend" id="legend">
+    <div><i style="background:var(--rwy)"></i>Runway</div>
+    <div><i style="background:var(--twy)"></i>Taxiway</div>
+    <div><i style="background:var(--apron)"></i>Apron</div>
+    <div><i style="background:var(--bldg)"></i>Building</div>
+    <div><i style="background:var(--terminal)"></i>Terminal / tower</div>
+    <div><i style="background:var(--water)"></i>Water</div>
+    <div><i style="background:var(--line)"></i>Taxi guidance line</div>
+    <div><i style="background:var(--magenta)"></i>Holding position</div>
+    <div><i style="background:var(--label)"></i>Labels</div>
+  </div>
+  <div class="ctl">
+    <button type="button" id="b-legend">Legend</button>
+    <label><input type="checkbox" id="c-lines" checked> Lines</label>
+    <label><input type="checkbox" id="c-stands" checked> Stands</label>
+    <label><input type="checkbox" id="c-bldg" checked> Bldg</label>
+    <label><input type="checkbox" id="c-mark"> RWY marks</label>
+    <span id="ranges"></span>
+  </div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  const cv = document.getElementById('map');
+  const ctx = cv.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  const C = (n) => css.getPropertyValue(n).trim();
+  const man = DATA.manifest, L = DATA.layers;
+  const lat0 = man.arp[0], lon0 = man.arp[1];
+  const kLat = 111195, kLon = 111195 * Math.cos(lat0 * Math.PI / 180);
+  const NM = 1852;
+
+  // Project everything once into local metres (x east, y north).
+  const P = (c) => [(c[0] - lon0) * kLon, (c[1] - lat0) * kLat];
+  function projGeom(g) {
+    const t = g.type;
+    if (t === 'Point') return { t, c: P(g.coordinates) };
+    if (t === 'LineString') return { t, c: g.coordinates.map(P) };
+    if (t === 'Polygon') return { t, c: g.coordinates.map(r => r.map(P)) };
+    if (t === 'MultiPolygon') return { t, c: g.coordinates.map(p => p.map(r => r.map(P))) };
+    if (t === 'MultiLineString') return { t, c: g.coordinates.map(l => l.map(P)) };
+    return null;
+  }
+  const F = {};
+  for (const k in L) F[k] = L[k].map(f => ({ g: projGeom(f.g), p: f.p })).filter(f => f.g);
+
+  // View state.
+  let cx = 0, cy = 0, rangeNm = 2, W = 0, H = 0, dpr = 1;
+  const RANGES = [0.2, 0.5, 1, 2, 5];
+  const scale = () => (Math.min(W, H) * 0.42) / (rangeNm * NM); // px per metre
+  const S = (p) => [W / 2 + (p[0] - cx) * scale(), H / 2 - (p[1] - cy) * scale()];
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    draw();
+  }
+
+  function pathRings(rings) {
+    for (const r of rings) {
+      r.forEach((p, i) => { const s = S(p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); });
+      ctx.closePath();
+    }
+  }
+  function fillLayer(name, color, filter) {
+    const fs = F[name]; if (!fs) return;
+    ctx.fillStyle = color;
+    for (const f of fs) {
+      if (filter && !filter(f)) continue;
+      ctx.beginPath();
+      if (f.g.t === 'Polygon') pathRings(f.g.c);
+      else if (f.g.t === 'MultiPolygon') f.g.c.forEach(pathRings);
+      ctx.fill('evenodd');
+    }
+  }
+  function strokeLayer(name, color, widthPx, filter) {
+    const fs = F[name]; if (!fs) return;
+    ctx.strokeStyle = color; ctx.lineWidth = widthPx; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const f of fs) {
+      if (filter && !filter(f)) continue;
+      const lines = f.g.t === 'LineString' ? [f.g.c] : f.g.t === 'MultiLineString' ? f.g.c : [];
+      for (const l of lines) l.forEach((p, i) => { const s = S(p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); });
+    }
+    ctx.stroke();
+  }
+  function centroid(g) {
+    let ring = g.t === 'Polygon' ? g.c[0] : g.t === 'MultiPolygon' ? g.c[0][0] : g.t === 'LineString' ? g.c : null;
+    if (!ring) return g.c;
+    if (g.t === 'LineString') return ring[Math.floor(ring.length / 2)];
+    let x = 0, y = 0, n = ring.length - 1;
+    for (let i = 0; i < n; i++) { x += ring[i][0]; y += ring[i][1]; }
+    return [x / n, y / n];
+  }
+  function lineLength(c) { let d = 0; for (let i = 1; i < c.length; i++) d += Math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]); return d; }
+
+  function labels(placed, items, color, px, cell) {
+    ctx.fillStyle = color; ctx.font = `700 ${px}px "B612 Mono", Consolas, monospace`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const it of items) {
+      const s = S(it.at);
+      if (s[0] < -40 || s[1] < -20 || s[0] > W + 40 || s[1] > H + 20) continue;
+      const key = Math.round(s[0] / cell) + ':' + Math.round(s[1] / cell) + ':' + it.text;
+      if (placed.has(key)) continue;
+      placed.add(key);
+      ctx.fillText(it.text, s[0], s[1]);
+    }
+  }
+
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = C('--ground'); ctx.fillRect(0, 0, W, H);
+    const sc = scale();
+    const showLines = document.getElementById('c-lines').checked;
+    const showStands = document.getElementById('c-stands').checked;
+    const showBldg = document.getElementById('c-bldg').checked;
+    const showMarks = document.getElementById('c-mark').checked;
+
+    fillLayer('water', C('--water'));
+    fillLayer('serviceroad', C('--road'));
+    fillLayer('taxiwayshoulder', C('--shoulder'));
+    fillLayer('runwayshoulder', C('--shoulder'));
+    fillLayer('apronelement', C('--apron'));
+    fillLayer('deicingarea', C('--apron'));
+    fillLayer('taxiwayelement', C('--twy'));
+    fillLayer('finalapproachandtakeoffarea', C('--twy'));
+    fillLayer('blastpad', '#8a8a8a');
+    fillLayer('stopway', '#8a8a8a');
+    fillLayer('runwaydisplacedarea', '#d0d0d0');
+    fillLayer('runwayelement', C('--rwy'));
+    fillLayer('constructionarea', 'rgba(255,92,224,0.25)');
+    if (showMarks) fillLayer('runwaymarking', '#3a3a3a');
+    if (showBldg) {
+      fillLayer('verticalpolygonalstructure', C('--bldg'), f => f.p.plysttyp !== 1 && f.p.plysttyp !== 3);
+      fillLayer('verticalpolygonalstructure', C('--terminal'), f => f.p.plysttyp === 1 || f.p.plysttyp === 3);
+    }
+    if (showLines) {
+      strokeLayer('taxiwayguidanceline', C('--line'), Math.max(1, 0.9 * sc));
+      strokeLayer('standguidanceline', C('--line'), Math.max(1, 0.6 * sc));
+      strokeLayer('runwayexitline', C('--line'), Math.max(1, 0.9 * sc));
+      strokeLayer('paintedcenterline', '#9a9a9a', Math.max(1, 0.9 * sc));
+      strokeLayer('taxiwayholdingposition', C('--magenta'), Math.max(1.5, 1.2 * sc));
+      strokeLayer('taxiwayintersectionmarking', '#c9b400', Math.max(1, 0.8 * sc));
+      strokeLayer('bridgeside', C('--cyan'), 1.5);
+    }
+    fillLayer('hotspot', 'rgba(255,92,224,0.2)');
+
+    // Range ring and own-aircraft symbol at the ARP (north up).
+    const c = S([0, 0]);
+    ctx.strokeStyle = C('--white'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(c[0], c[1], rangeNm * NM * sc, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.arc(c[0], c[1], rangeNm * NM * sc / 2, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = C('--white'); ctx.font = '700 14px "B612 Mono", Consolas, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const R = rangeNm * NM * sc;
+    ctx.fillText('N', c[0], c[1] - R - 12); ctx.fillText('S', c[0], c[1] + R + 12);
+    ctx.fillText('E', c[0] + R + 12, c[1]); ctx.fillText('W', c[0] - R - 12, c[1]);
+    ctx.strokeStyle = C('--label'); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(c[0], c[1] - 14); ctx.lineTo(c[0], c[1] + 8); ctx.moveTo(c[0] - 12, c[1] - 2); ctx.lineTo(c[0] + 12, c[1] - 2); ctx.moveTo(c[0] - 5, c[1] + 7); ctx.lineTo(c[0] + 5, c[1] + 7); ctx.stroke();
+
+    // Labels: taxiways (yellow), runways (white), stands (cyan).
+    const placed = new Set();
+    const twy = [];
+    for (const f of (F.taxiwayguidanceline || [])) if (f.p.idlin && lineLength(f.g.c) > 60) twy.push({ at: centroid(f.g), text: f.p.idlin });
+    for (const f of (F.taxiwayelement || [])) if (f.p.idlin) twy.push({ at: centroid(f.g), text: f.p.idlin });
+    labels(placed, twy, C('--label'), rangeNm <= 1 ? 14 : 12, rangeNm <= 1 ? 70 : 110);
+    const rwys = (F.runwaythreshold || []).map(f => ({ at: f.g.c, text: f.p.idthr }));
+    labels(placed, rwys, C('--white'), 14, 20);
+    if (showStands && rangeNm <= 1) labels(placed, (F.parkingstandlocation || []).map(f => ({ at: f.g.c, text: f.p.idstd })), C('--cyan'), 11, 28);
+    if (rangeNm <= 0.5) labels(placed, (F.aerodromesign || []).filter(f => f.p.signtype === 1).map(f => ({ at: f.g.c, text: f.p.msgfront })), '#ff6b6b', 10, 40);
+    document.getElementById('h-range').textContent = rangeNm + ' NM';
+  }
+
+  // HUD.
+  const arp = (L.aerodromereferencepoint || [])[0];
+  document.getElementById('h-icao').textContent = man.icao + (man.iata ? ' / ' + man.iata : '');
+  document.getElementById('h-name').textContent = (man.name || '').toUpperCase();
+  document.getElementById('h-src').textContent = 'SRC ' + man.sources.join(' + ');
+  document.getElementById('h-elev').textContent = man.elevation_ft != null ? Math.round(man.elevation_ft) + ' FT' : '---';
+  const rw = (L.runwayelement || []).map(f => f.p.idrwy).filter((v, i, a) => v && a.indexOf(v) === i);
+  document.getElementById('h-rwy').textContent = rw.join('  ') || '---';
+  const total = Object.values(man.layers).reduce((a, l) => a + l.count, 0);
+  document.getElementById('h-feat').textContent = total.toLocaleString();
+
+  // Controls.
+  const rangesEl = document.getElementById('ranges');
+  RANGES.forEach(r => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = r + ' NM'; b.id = 'r-' + String(r).replace('.', '_');
+    b.setAttribute('aria-pressed', r === rangeNm);
+    b.onclick = () => { rangeNm = r; rangesEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b)); draw(); };
+    rangesEl.appendChild(b);
+  });
+  document.getElementById('b-legend').onclick = () => document.getElementById('legend').classList.toggle('show');
+  ['c-lines', 'c-stands', 'c-bldg', 'c-mark'].forEach(id => document.getElementById(id).addEventListener('change', draw));
+
+  // Pan & zoom.
+  let drag = null;
+  cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, cx, cy }; cv.classList.add('dragging'); cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', e => { if (!drag) return; const sc = scale(); cx = drag.cx - (e.clientX - drag.x) / sc; cy = drag.cy + (e.clientY - drag.y) / sc; draw(); });
+  cv.addEventListener('pointerup', () => { drag = null; cv.classList.remove('dragging'); });
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const i = RANGES.indexOf(rangeNm);
+    const j = Math.min(RANGES.length - 1, Math.max(0, i + (e.deltaY > 0 ? 1 : -1)));
+    if (j !== i) { rangeNm = RANGES[j]; rangesEl.querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x.textContent === rangeNm + ' NM')); draw(); }
+  }, { passive: false });
+  window.addEventListener('resize', resize);
+  document.fonts && document.fonts.ready.then(draw);
+  resize();
+})();
+</script>

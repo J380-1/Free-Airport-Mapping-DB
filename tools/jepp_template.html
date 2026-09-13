@@ -1,0 +1,238 @@
+<meta charset="utf-8">
+<title>Airport Diagram</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Roboto:wght@400;700&display=swap">
+<style>
+  /* Deliberately single-theme: a printed chart sheet is always white. */
+  :root {
+    --paper: #ffffff;
+    --ink: #111111;
+    --rwy: #1a1a1a;
+    --twy: #b9b9b9;
+    --apron: #d9d9d9;
+    --bldg: #2b2b2b;
+    --water: #dbe7f0;
+    --water-line: #6f8fa8;
+    --hold: #1a1a1a;
+    --box: #ffffff;
+    --grid: #7a7a7a;
+    --band: #111111;
+    --stand: #444444;
+  }
+  html, body { background: #5d5d5d; }
+  body { margin: 0; padding-inline: 16px; padding-block: 20px; font-family: "Roboto", Arial, Helvetica, sans-serif; color: var(--ink); }
+  .sheet { max-width: 900px; margin: 0 auto; background: var(--paper); color: var(--ink); box-shadow: 0 8px 30px rgba(0,0,0,0.45); padding: 18px 22px 22px; box-sizing: border-box; }
+  .hdr { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; border-bottom: 3px solid var(--band); padding-bottom: 8px; }
+  .hdr .brand { font-family: "Roboto Condensed", "Arial Narrow", Arial, sans-serif; font-weight: 700; letter-spacing: 0.02em; font-size: 18px; }
+  .hdr .idx { text-align: right; font-family: "Roboto Condensed", Arial, sans-serif; font-weight: 700; font-size: 20px; }
+  .hdr .city { font-family: "Roboto Condensed", Arial, sans-serif; font-weight: 700; font-size: 22px; text-transform: uppercase; }
+  .hdr .name { font-family: "Roboto Condensed", Arial, sans-serif; font-weight: 700; font-size: 24px; text-transform: uppercase; text-align: right; text-wrap: balance; }
+  .hdr .sub { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .freq { display: flex; flex-wrap: wrap; gap: 0 22px; border-bottom: 1px solid var(--band); padding: 6px 0; font-family: "Roboto Condensed", Arial, sans-serif; font-size: 14px; }
+  .freq b { font-weight: 700; margin-right: 6px; }
+  .mapwrap { position: relative; margin-top: 10px; border: 1px solid var(--ink); }
+  canvas { display: block; width: 100%; aspect-ratio: 1 / 1; max-width: 100%; }
+  .tbl { width: 100%; border-collapse: collapse; margin-top: 12px; font-family: "Roboto Condensed", Arial, sans-serif; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .tbl th { text-align: left; border-bottom: 2px solid var(--band); padding: 4px 6px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+  .tbl td { border-bottom: 1px solid #cfcfcf; padding: 4px 6px; }
+  .tbl td.n, .tbl th.n { text-align: right; }
+  .foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; font-size: 11px; color: #333; }
+  .notice { font-size: 11px; margin-top: 6px; color: #333; }
+  @media (max-width: 600px) { .hdr { grid-template-columns: 1fr; } .hdr .name, .hdr .idx { text-align: left; } }
+</style>
+
+<div class="sheet">
+  <div class="hdr">
+    <div><div class="brand">AIRPORT DIAGRAM</div><div class="sub" id="h-src"></div></div>
+    <div class="idx" id="h-idx"></div>
+    <div class="city" id="h-city"></div>
+    <div class="name" id="h-name"></div>
+  </div>
+  <div class="freq" id="freq"></div>
+  <div class="mapwrap"><canvas id="c" aria-label="Airport diagram"></canvas></div>
+  <table class="tbl" id="rwy"></table>
+  <div class="foot"><span id="f-elev"></span><span id="f-arp"></span><span id="f-ta"></span><span>Generated from free sources (X-Plane Gateway, OpenStreetMap); not for real-world navigation.</span></div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+(function () {
+  const man = DATA.manifest, L = DATA.layers;
+  const lat0 = man.arp[0], lon0 = man.arp[1];
+  const kLat = 111195, kLon = 111195 * Math.cos(lat0 * Math.PI / 180);
+  const P = (c) => [(c[0] - lon0) * kLon, (c[1] - lat0) * kLat];
+  function proj(g) {
+    const t = g.type;
+    if (t === 'Point') return { t, c: P(g.coordinates) };
+    if (t === 'LineString') return { t, c: g.coordinates.map(P) };
+    if (t === 'Polygon') return { t, c: g.coordinates.map(r => r.map(P)) };
+    if (t === 'MultiPolygon') return { t, c: g.coordinates.map(p => p.map(r => r.map(P))) };
+    return null;
+  }
+  const F = {};
+  for (const k in L) F[k] = L[k].map(f => ({ g: proj(f.g), p: f.p })).filter(f => f.g);
+
+  // Extent from pavement + runways.
+  let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+  const extend = (pts) => { for (const [x, y] of pts) { if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; } };
+  for (const k of ['runwayelement', 'taxiwayelement', 'apronelement']) for (const f of (F[k] || [])) (f.g.t === 'Polygon' ? [f.g.c[0]] : f.g.c.map(p => p[0])).forEach(extend);
+  const pad = 250;
+  minx -= pad; miny -= pad; maxx += pad; maxy += pad;
+  const spanX = maxx - minx, spanY = maxy - miny, span = Math.max(spanX, spanY);
+  const cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  const css = getComputedStyle(document.documentElement);
+  const C = (n) => css.getPropertyValue(n).trim();
+  let W = 0, H = 0, dpr = 1;
+  const S = (p) => [W / 2 + (p[0] - cx) / span * (W - 60), H / 2 - (p[1] - cy) / span * (H - 60)];
+  const scale = () => (W - 60) / span; // px per metre
+
+  function pathRings(rings) { for (const r of rings) { r.forEach((p, i) => { const s = S(p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); }); ctx.closePath(); } }
+  function fill(name, color, filter, stroke) {
+    for (const f of (F[name] || [])) {
+      if (filter && !filter(f)) continue;
+      ctx.beginPath();
+      if (f.g.t === 'Polygon') pathRings(f.g.c); else if (f.g.t === 'MultiPolygon') f.g.c.forEach(pathRings);
+      ctx.fillStyle = color; ctx.fill('evenodd');
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 0.6; ctx.stroke(); }
+    }
+  }
+  function strokeLines(name, color, width, dash) {
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (const f of (F[name] || [])) { const lines = f.g.t === 'LineString' ? [f.g.c] : []; for (const l of lines) l.forEach((p, i) => { const s = S(p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); }); }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  function centroid(g) {
+    const ring = g.t === 'Polygon' ? g.c[0] : g.t === 'MultiPolygon' ? g.c[0][0] : g.t === 'LineString' ? g.c : null;
+    if (!ring) return g.c;
+    if (g.t === 'LineString') return ring[Math.floor(ring.length / 2)];
+    let x = 0, y = 0, n = ring.length - 1; for (let i = 0; i < n; i++) { x += ring[i][0]; y += ring[i][1]; } return [x / n, y / n];
+  }
+  function lineLength(c) { let d = 0; for (let i = 1; i < c.length; i++) d += Math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]); return d; }
+  function area(g) { const r = g.t === 'Polygon' ? g.c[0] : g.t === 'MultiPolygon' ? g.c[0][0] : []; let a = 0; for (let i = 0; i < r.length - 1; i++) a += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return Math.abs(a) / 2; }
+  function boxedLabel(text, at, px, placed, cell) {
+    const s = S(at);
+    const key = Math.round(s[0] / cell) + ':' + Math.round(s[1] / cell) + ':' + text;
+    if (placed.has(key)) return;
+    placed.add(key);
+    ctx.font = `700 ${px}px "Roboto Condensed", "Arial Narrow", Arial, sans-serif`;
+    const w = ctx.measureText(text).width + 6, h = px + 4;
+    ctx.fillStyle = C('--box'); ctx.fillRect(s[0] - w / 2, s[1] - h / 2, w, h);
+    ctx.strokeStyle = C('--ink'); ctx.lineWidth = 1; ctx.strokeRect(s[0] - w / 2, s[1] - h / 2, w, h);
+    ctx.fillStyle = C('--ink'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text, s[0], s[1] + 0.5);
+  }
+
+  function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = C('--paper'); ctx.fillRect(0, 0, W, H);
+    // Lat/lon tick grid every 30 seconds along the margins.
+    const step = 30 / 3600;
+    ctx.strokeStyle = C('--grid'); ctx.lineWidth = 0.8; ctx.fillStyle = C('--ink'); ctx.font = '10px Roboto, Arial, sans-serif';
+    const lonMin = lon0 + minx / kLon, lonMax = lon0 + maxx / kLon, latMin = lat0 + miny / kLat, latMax = lat0 + maxy / kLat;
+    for (let lon = Math.ceil(lonMin / step) * step; lon <= lonMax; lon += step) {
+      const x = S([(lon - lon0) * kLon, 0])[0];
+      if (x < 30 || x > W - 30) continue;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 8); ctx.moveTo(x, H); ctx.lineTo(x, H - 8); ctx.stroke();
+      const d = Math.abs(lon), deg = Math.floor(d), min = Math.round((d - deg) * 60 * 2) / 2;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(`${lon < 0 ? 'W' : 'E'}${deg}°${min.toFixed(1)}`, x, 10);
+    }
+    for (let lat = Math.ceil(latMin / step) * step; lat <= latMax; lat += step) {
+      const y = S([0, (lat - lat0) * kLat])[1];
+      if (y < 30 || y > H - 30) continue;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(8, y); ctx.moveTo(W, y); ctx.lineTo(W - 8, y); ctx.stroke();
+      const d = Math.abs(lat), deg = Math.floor(d), min = Math.round((d - deg) * 60 * 2) / 2;
+      ctx.save(); ctx.translate(12, y); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(`${lat < 0 ? 'S' : 'N'}${deg}°${min.toFixed(1)}`, 0, 0); ctx.restore();
+    }
+
+    fill('water', C('--water'), null, C('--water-line'));
+    fill('apronelement', C('--apron'));
+    fill('taxiwayelement', C('--twy'));
+    fill('constructionarea', '#ffffff', null, '#777');
+    fill('blastpad', '#ffffff', null, C('--ink'));
+    fill('stopway', '#ffffff', null, C('--ink'));
+    fill('runwaydisplacedarea', '#888888');
+    fill('runwayelement', C('--rwy'));
+    fill('verticalpolygonalstructure', C('--bldg'), f => f.p.plysttyp === 1 || f.p.plysttyp === 3);
+    fill('verticalpolygonalstructure', '#6f6f6f', f => f.p.plysttyp !== 1 && f.p.plysttyp !== 3);
+    const sc = scale();
+    strokeLines('taxiwayguidanceline', '#3c3c3c', Math.max(0.5, 0.5 * sc), [3, 2]);
+    strokeLines('runwayexitline', '#3c3c3c', Math.max(0.5, 0.5 * sc), [3, 2]);
+    strokeLines('taxiwayholdingposition', C('--hold'), Math.max(1.2, 1.5 * sc));
+    // Hot spots: hatched circles.
+    for (const f of (F.hotspot || [])) { const s = S(centroid(f.g)); ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, Math.PI * 2); ctx.strokeStyle = C('--ink'); ctx.lineWidth = 1.5; ctx.stroke(); ctx.font = '700 10px Roboto'; ctx.fillStyle = C('--ink'); ctx.textAlign = 'center'; ctx.fillText(f.p.idhot || 'HS', s[0], s[1] + 3); }
+    // Windsocks.
+    for (const f of (F.verticalpointstructure || [])) if (f.p.pntsttyp === 6) { const s = S(f.g.c); ctx.beginPath(); ctx.moveTo(s[0], s[1] + 6); ctx.lineTo(s[0], s[1] - 6); ctx.lineTo(s[0] + 8, s[1] - 4); ctx.lineTo(s[0], s[1] - 1); ctx.strokeStyle = C('--ink'); ctx.lineWidth = 1; ctx.stroke(); }
+    // ARP.
+    { const s = S([0, 0]); ctx.strokeStyle = C('--ink'); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, Math.PI * 2); ctx.moveTo(s[0] - 9, s[1]); ctx.lineTo(s[0] + 9, s[1]); ctx.moveTo(s[0], s[1] - 9); ctx.lineTo(s[0], s[1] + 9); ctx.stroke(); }
+
+    // Labels.
+    const placed = new Set();
+    // Taxiway designators: short names only, longest lines first, one per 110 px cell.
+    const isDesignator = (s) => /^[A-Z]{1,2}[0-9]{0,2}$/.test(s);
+    const gl = (F.taxiwayguidanceline || []).filter(f => f.p.idlin && isDesignator(f.p.idlin)).map(f => ({ f, len: lineLength(f.g.c) })).filter(x => x.len > 200).sort((a, b) => b.len - a.len);
+    for (const { f } of gl) boxedLabel(f.p.idlin, centroid(f.g), 10, placed, 110);
+    for (const f of (F.taxiwayelement || [])) if (f.p.idlin && isDesignator(f.p.idlin) && area(f.g) > 15000) boxedLabel(f.p.idlin, centroid(f.g), 10, placed, 110);
+    // Runway designators at thresholds, rotated along the runway.
+    ctx.fillStyle = C('--ink');
+    for (const f of (F.runwaythreshold || [])) {
+      const s = S(f.g.c); const br = (f.p.brngtrue || 0) * Math.PI / 180;
+      const off = 22; const x = s[0] - Math.sin(br) * off, y = s[1] + Math.cos(br) * off;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(br); ctx.font = '700 13px "Roboto Condensed", Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(f.p.idthr, 0, 0); ctx.restore();
+    }
+    // Runway length/width along the runway.
+    for (const f of (F.runwayelement || [])) {
+      if (!f.p.idrwy || !f.p.length) continue;
+      const c = centroid(f.g); const s = S(c);
+      const thr = (F.runwaythreshold || []).filter(t => t.p.idrwy === f.p.idrwy);
+      if (thr.length < 1) continue;
+      const br = (thr[0].p.brngtrue || 0) * Math.PI / 180;
+      ctx.save(); ctx.translate(s[0], s[1]); ctx.rotate(br - Math.PI / 2); if (Math.cos(br - Math.PI / 2) < 0) ctx.rotate(Math.PI);
+      ctx.font = '700 10px "Roboto Condensed", Arial, sans-serif'; ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(`${Math.round(f.p.length * 3.28084)}' x ${Math.round(f.p.width * 3.28084)}'`, 0, 0); ctx.restore();
+    }
+    // Terminal names: only the largest named terminals, boxed, one per area.
+    const terms = (F.verticalpolygonalstructure || []).filter(f => f.p.plysttyp === 1 && f.p.name).map(f => ({ f, a: area(f.g) })).sort((x, y) => y.a - x.a).slice(0, 8);
+    const tp = new Set();
+    for (const { f } of terms) boxedLabel(f.p.name.toUpperCase().replace(/^TERMINAL /, 'T').substring(0, 14), centroid(f.g), 10, tp, 90);
+    // North arrow.
+    { const x = W - 40, y = 60; ctx.strokeStyle = C('--ink'); ctx.fillStyle = C('--ink'); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, y + 26); ctx.lineTo(x, y - 20); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y - 26); ctx.lineTo(x - 6, y - 12); ctx.lineTo(x + 6, y - 12); ctx.closePath(); ctx.fill(); ctx.font = '700 12px Roboto'; ctx.textAlign = 'center'; ctx.fillText('N', x, y + 40); }
+    // Scale bar 1000 ft.
+    { const ft = 1000 * 0.3048 * sc; const x0 = 30, y0 = H - 24; ctx.strokeStyle = C('--ink'); ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + ft, y0); ctx.stroke(); ctx.fillStyle = C('--ink'); ctx.font = '10px Roboto'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('0', x0, y0 - 3); ctx.fillText("1000'", x0 + ft, y0 - 3); }
+  }
+
+  function resize() { dpr = window.devicePixelRatio || 1; W = cv.clientWidth; H = cv.clientHeight || W; cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); draw(); }
+
+  // Header and tables.
+  const arp = (L.aerodromereferencepoint || [])[0]?.p || {};
+  document.getElementById('h-idx').textContent = `${man.icao}${man.iata ? '/' + man.iata : ''}`;
+  const cityTxt = (arp.city || '').trim();
+  const countryTxt = (arp.country || '').trim();
+  document.getElementById('h-city').textContent = cityTxt.toUpperCase().includes(countryTxt.toUpperCase()) || !countryTxt ? cityTxt : `${cityTxt}, ${countryTxt}`;
+  document.getElementById('h-name').textContent = man.name || man.icao;
+  document.getElementById('h-src').textContent = `AMDB from ${man.sources.join(' + ')} · ${man.generated.substring(0, 10)}`;
+  const st = { 1: 'ATIS', 2: 'UNICOM', 3: 'CLNC DEL', 4: 'GROUND', 5: 'TOWER', 6: 'APPROACH', 7: 'DEPARTURE' };
+  const freqs = (L.frequencyarea || []).map(f => f.p).sort((a, b) => a.station - b.station);
+  const fe = document.getElementById('freq');
+  const seen = new Set();
+  for (const f of freqs) { const key = f.station + ':' + f.frq; if (seen.has(key)) continue; seen.add(key); const s = document.createElement('span'); s.innerHTML = `<b>${st[f.station] || 'ATC'}</b>${f.frq.toFixed(3)}${f.name ? ' <small>' + f.name.replace(/</g, '') + '</small>' : ''}`; fe.appendChild(s); }
+  if (!freqs.length) fe.textContent = 'No frequencies in source data';
+  const surf = { 0: 'unknown', 1: 'concrete (grooved)', 2: 'concrete', 3: 'asphalt (grooved)', 4: 'asphalt', 9: 'grass', 11: 'gravel' };
+  const rows = [];
+  for (const r of (L.runwayelement || [])) {
+    const p = r.p; if (!p.idrwy || rows.some(x => x.idrwy === p.idrwy)) continue;
+    const thr = (L.runwaythreshold || []).map(t => t.p).filter(t => t.idrwy === p.idrwy);
+    rows.push({ idrwy: p.idrwy, len: p.length, wid: p.width, surf: surf[p.surftype] || 'paved', thr });
+  }
+  const t = document.getElementById('rwy');
+  t.innerHTML = '<tr><th>Runway</th><th class="n">Length</th><th class="n">Width</th><th>Surface</th><th>Thresholds (true brg / TORA / LDA)</th></tr>' +
+    rows.map(r => `<tr><td><b>${r.idrwy}</b></td><td class="n">${Math.round(r.len * 3.28084).toLocaleString()}' (${Math.round(r.len)} m)</td><td class="n">${Math.round(r.wid * 3.28084)}'</td><td>${r.surf}</td><td>${r.thr.map(x => `${x.idthr} ${Math.round(x.brngtrue)}° / ${Math.round(x.tora)} m / ${Math.round(x.lda)} m`).join(' · ')}</td></tr>`).join('');
+  document.getElementById('f-elev').textContent = man.elevation_ft != null ? `ELEV ${Math.round(man.elevation_ft)}'` : '';
+  document.getElementById('f-arp').textContent = `ARP N${man.arp[0].toFixed(4)} ${man.arp[1] < 0 ? 'W' : 'E'}${Math.abs(man.arp[1]).toFixed(4)}`;
+  document.getElementById('f-ta').textContent = arp.transalt ? `TRANS ALT ${arp.transalt}'` : '';
+  window.addEventListener('resize', resize);
+  document.fonts && document.fonts.ready.then(draw);
+  resize();
+})();
+</script>
