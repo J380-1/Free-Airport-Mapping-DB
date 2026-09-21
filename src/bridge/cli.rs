@@ -334,7 +334,7 @@ enum Cmd {
     /// Remove the hosts-file redirect and the local certificate authority (cleanup after a crash).
     Cleanup,
     /// One-time setup for aircraft that ask Navigraph's map server directly (iniBuilds A350,
-    /// FlyByWire A380X): point its address here and trust the local certificate. Needs
+    /// iniBuilds A380, FlyByWire A380X): point its address here and trust the local certificate. Needs
     /// administrator rights (sudo on Linux). `off` undoes it.
     Navigraph {
         /// on or off
@@ -457,7 +457,7 @@ fn serve(a: ServeArgs) -> Result<()> {
     } else if !a.no_hosts {
         if !hosts::writable() {
             if !cfg!(windows) {
-                return Err(anyhow!("the iniBuilds A350 and FlyByWire A380X need a one-time setup: run `sudo {} navigraph on`, then this again (or add --no-hosts to serve everything else)", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "amdb-bridge".into())));
+                return Err(anyhow!("the iniBuilds A350, iniBuilds A380 and FlyByWire A380X need a one-time setup: run `sudo {} navigraph on`, then this again (or add --no-hosts to serve everything else)", std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "amdb-bridge".into())));
             }
             relaunch_elevated()?;
         }
@@ -487,6 +487,14 @@ fn serve(a: ServeArgs) -> Result<()> {
                     }
                 }
                 Err(e) => crate::term::warn(&format!("could not patch the A350 EFB in {}: {e:#}", d.display())),
+            }
+            match patcher::patch_a380(&d, false) {
+                Ok(files) => {
+                    for f in files {
+                        crate::term::success(&format!("iniBuilds A380 EFB patched to hand its OANS a token (backup kept, `unpatch` restores): {}", f.path.display()));
+                    }
+                }
+                Err(e) => crate::term::warn(&format!("could not patch the A380 EFB in {}: {e:#}", d.display())),
             }
             match patcher::patch_a220(&d, false) {
                 Ok(files) => {
@@ -627,6 +635,9 @@ pub fn run() -> Result<()> {
                 for (pkg, f, patched) in patcher::scan_a350(&d) {
                     println!("  {}  EFB token handler {}: {}", pkg, if patched { "PATCHED (OANS works without a Navigraph subscription)" } else { "not patched (run `serve` or `patch`)" }, f.file_name().unwrap_or_default().to_string_lossy());
                 }
+                for (pkg, f, patched) in patcher::scan_a380(&d) {
+                    println!("  {}  A380 EFB token handler {}: {}", pkg, if patched { "PATCHED (OANS works without a Navigraph subscription)" } else { "not patched (run `serve` or `patch`)" }, f.file_name().unwrap_or_default().to_string_lossy());
+                }
                 for (pkg, f, patched) in patcher::scan_a220(&d) {
                     println!("  {}  A220 moving map {}: {}", pkg, if patched { "PATCHED (token fallback + bridge airport search)" } else { "not patched (run `serve` or `patch`)" }, f.file_name().unwrap_or_default().to_string_lossy());
                     if let Some(w) = patcher::a220_load_order_warning(&d, &pkg) {
@@ -651,7 +662,7 @@ pub fn run() -> Result<()> {
                 relaunch_elevated()?;
             }
             super::desktop::setup_navigraph(on)?;
-            crate::term::success(if on { "A350/A380X set up: run `amdb-bridge serve` as your normal user" } else { "A350/A380X setup removed" });
+            crate::term::success(if on { "A350/A380/A380X set up: run `amdb-bridge serve` as your normal user" } else { "A350/A380/A380X setup removed" });
             Ok(())
         }
         Cmd::Cleanup => {
@@ -682,6 +693,7 @@ pub fn run() -> Result<()> {
             for d in communities(&community) {
                 total += patcher::patch(&d, port, dry_run)?.len();
                 total += patcher::patch_a350(&d, dry_run)?.len();
+                total += patcher::patch_a380(&d, dry_run)?.len();
                 total += patcher::patch_a220(&d, dry_run)?.len();
             }
             println!("{}{} file(s) patched", if dry_run { "[dry-run] " } else { "" }, total);

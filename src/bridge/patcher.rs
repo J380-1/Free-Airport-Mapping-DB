@@ -6,12 +6,13 @@
 //! * literal `https://amdb.api.navigraph.com` (FlyByWire builds and anything on the fbw-sdk);
 //! * Navigraph SDK templates `https://amdb.api.${fn()}` (the host is computed), which
 //!   become `http://127.0.0.1:PORT/${fn()}` — the server ignores the extra prefix;
-//! * the iniBuilds A350 EFB, whose OANS gauge (WASM) only fetches AMDB data once the
-//!   EFB has handed it a Navigraph token over the comm bus. The EFB answers the
-//!   gauge's `RequestNavigraphAccessToken` with an empty string unless a Navigraph
+//! * the iniBuilds A350 and A380 EFBs, whose OANS gauges (WASM) only fetch AMDB data
+//!   once the EFB has handed them a Navigraph token over the comm bus. The EFB answers
+//!   the gauge's `RequestNavigraphAccessToken` with an empty string unless a Navigraph
 //!   account with a subscription is signed in, so that handler is rewritten to always
-//!   answer with a placeholder token. The bridge ignores the bearer token, and the
-//!   gauge's requests still reach it through the hosts-file redirect.
+//!   answer with a placeholder token (the A380's redesigned EFB spells the same
+//!   handoff differently, hence the loose match). The bridge ignores the bearer token,
+//!   and the gauge's requests still reach it through the hosts-file redirect.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -32,11 +33,10 @@ pub struct PatchedFile {
 
 pub const BACKUP_SUFFIX: &str = ".amdb-bridge.bak";
 
-/// Opaque placeholder the patched A350 EFB hands to its OANS gauge; the bridge does
-/// not check bearer tokens, it only needs the gauge to believe it has one.
+/// Opaque placeholder the patched iniBuilds EFB hands to its OANS gauge; the bridge
+/// does not check bearer tokens, it only needs the gauge to believe it has one.
 pub const A350_TOKEN: &str = "amdb-bridge-local";
 const A350_MARK: &str = "/*amdb-bridge*/";
-const A350_HANDLER: &str = "'RequestNavigraphAccessToken',()=>{";
 
 /// Index just past the `}` that closes the block opened at `open` (which must be a `{`),
 /// skipping string literals. None if the text is unbalanced.
@@ -70,14 +70,25 @@ fn block_end(text: &str, open: usize) -> Option<usize> {
     None
 }
 
-/// Rewrite the A350 EFB token handler. None when the text is not an A350 EFB bundle or
-/// is already patched.
-pub fn patch_a350_text(text: &str) -> Option<String> {
+/// Opening `{` of the callback block answering the OANS gauge's token request.
+/// The A350 ships `'RequestNavigraphAccessToken',()=>{`; the A380's redesigned EFB
+/// spells the same handoff with different quoting and spacing, so only the event
+/// name itself is matched, then the `=>` (or `function`) callback after it.
+fn token_handler_open(text: &str) -> Option<usize> {
+    let tok = text.find("RequestNavigraphAccessToken")?;
+    let window: String = text[tok..].chars().take(80).collect();
+    let rel = window.find("=>").or_else(|| window.find("function"))?;
+    let base = tok + window[..rel].len();
+    Some(base + text[base..].find('{')?)
+}
+
+/// Rewrite an iniBuilds EFB token handler (A350 or A380). None when the text holds
+/// no such handler or is already patched.
+pub fn patch_inibuilds_text(text: &str) -> Option<String> {
     if text.contains(A350_MARK) {
         return None;
     }
-    let start = text.find(A350_HANDLER)?;
-    let open = start + A350_HANDLER.len() - 1;
+    let open = token_handler_open(text)?;
     let end = block_end(text, open)?;
     let push = format!("Coherent.call('COMM_BUS_WASM_CALLBACK','SetNavigraphAccessToken','{A350_TOKEN}')");
     let mut out = String::with_capacity(text.len() + 400);
@@ -90,8 +101,17 @@ pub fn patch_a350_text(text: &str) -> Option<String> {
     Some(out)
 }
 
-/// A350 EFB bundles in a Community folder: (package, file, already patched).
-pub fn scan_a350(community: &Path) -> Vec<(String, PathBuf, bool)> {
+/// Rewrite the A350 EFB token handler. None when the text is not an A350 EFB bundle or
+/// is already patched.
+pub fn patch_a350_text(text: &str) -> Option<String> {
+    patch_inibuilds_text(text)
+}
+
+/// iniBuilds EFB/OIS bundles (A350 and A380) in a Community folder:
+/// (package, file, already patched). The A380's redesigned EFB does not use the
+/// A350's `ini-efb*` bundle names, so any EFB/OIS script holding the token handoff
+/// is matched.
+pub fn scan_inibuilds(community: &Path) -> Vec<(String, PathBuf, bool)> {
     let mut out = Vec::new();
     let Ok(rd) = fs::read_dir(community) else { return out };
     for pkg in rd.flatten() {
@@ -103,11 +123,11 @@ pub fn scan_a350(community: &Path) -> Vec<(String, PathBuf, bool)> {
         walk_js(&pdir.join("html_ui"), &mut js);
         for f in js {
             let name = f.file_name().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-            if !name.starts_with("ini-efb") {
+            if !name.contains("efb") && !name.contains("ois") {
                 continue;
             }
             let Ok(text) = fs::read_to_string(&f) else { continue };
-            if text.contains(A350_HANDLER) || text.contains(A350_MARK) {
+            if text.contains("RequestNavigraphAccessToken") || text.contains(A350_MARK) {
                 out.push((pkg.file_name().to_string_lossy().to_string(), f, text.contains(A350_MARK)));
             }
         }
@@ -115,18 +135,29 @@ pub fn scan_a350(community: &Path) -> Vec<(String, PathBuf, bool)> {
     out
 }
 
-/// Apply the A350 EFB token patch in a Community folder (backups kept, recorded for
-/// `unpatch`). Returns the files changed.
-pub fn patch_a350(community: &Path, dry_run: bool) -> Result<Vec<PatchedFile>> {
+/// A350 EFB bundles in a Community folder: (package, file, already patched).
+/// Packages whose folder names point at the A380 belong to `scan_a380`.
+pub fn scan_a350(community: &Path) -> Vec<(String, PathBuf, bool)> {
+    scan_inibuilds(community).into_iter().filter(|(pkg, _, _)| !pkg.to_ascii_lowercase().contains("a380")).collect()
+}
+
+/// iniBuilds A380 EFB bundles in a Community folder: (package, file, already patched).
+pub fn scan_a380(community: &Path) -> Vec<(String, PathBuf, bool)> {
+    scan_inibuilds(community).into_iter().filter(|(pkg, _, _)| pkg.to_ascii_lowercase().contains("a380")).collect()
+}
+
+/// Apply the iniBuilds EFB token patch in a Community folder (backups kept, recorded
+/// for `unpatch`). Returns the files changed.
+pub fn patch_inibuilds(community: &Path, dry_run: bool, label: &str, found: Vec<(String, PathBuf, bool)>) -> Result<Vec<PatchedFile>> {
     let mut record = load_record(community);
     let mut done = Vec::new();
-    for (pkg, path, patched) in scan_a350(community) {
+    for (pkg, path, patched) in found {
         if patched {
             continue;
         }
         let text = fs::read_to_string(&path)?;
-        let Some(new_text) = patch_a350_text(&text) else { continue };
-        log::info!("{}{}: Navigraph token handler rewritten in {}", if dry_run { "[dry-run] " } else { "" }, pkg, path.display());
+        let Some(new_text) = patch_inibuilds_text(&text) else { continue };
+        log::info!("{}{}: Navigraph token handler rewritten in {} ({label})", if dry_run { "[dry-run] " } else { "" }, pkg, path.display());
         if dry_run {
             done.push(PatchedFile { path: path.clone(), backup: PathBuf::new(), replacements: 1 });
             continue;
@@ -145,6 +176,20 @@ pub fn patch_a350(community: &Path, dry_run: bool) -> Result<Vec<PatchedFile>> {
         save_record(community, &record)?;
     }
     Ok(done)
+}
+
+/// Apply the A350 EFB token patch in a Community folder (backups kept, recorded for
+/// `unpatch`). Returns the files changed.
+pub fn patch_a350(community: &Path, dry_run: bool) -> Result<Vec<PatchedFile>> {
+    let found = scan_a350(community);
+    patch_inibuilds(community, dry_run, "A350", found)
+}
+
+/// Apply the A380 EFB token patch in a Community folder (backups kept, recorded for
+/// `unpatch`). Returns the files changed.
+pub fn patch_a380(community: &Path, dry_run: bool) -> Result<Vec<PatchedFile>> {
+    let found = scan_a380(community);
+    patch_inibuilds(community, dry_run, "A380", found)
 }
 
 // ---------------------------------------------------------------------------------
@@ -518,6 +563,50 @@ mod tests {
         assert!(out.trim_end().ends_with("},30000);"));
         assert!(patch_a350_text(&out).is_none(), "idempotent");
         assert!(patch_a350_text("nothing here").is_none());
+    }
+
+    #[test]
+    fn a380_handler_variants_are_rewritten() {
+        // The A380's redesigned EFB spells the same token handoff with different
+        // quoting and spacing; without this the gauge gets no token and reports
+        // ARPT NAV NOT AVAILABLE (NAVIGRAPH).
+        for src in [
+            "efb.on(\"RequestNavigraphAccessToken\", () => { if(!authed){push('');} });".to_string(),
+            "bus.register('RequestNavigraphAccessToken',function(t){graphql.auth(t);});".to_string(),
+            "x.on(`RequestNavigraphAccessToken`,()=>{a380Check();});".to_string(),
+        ] {
+            let out = patch_inibuilds_text(&src).unwrap_or_else(|| panic!("not patched: {src}"));
+            assert!(out.contains("/*amdb-bridge*/Coherent.call('COMM_BUS_WASM_CALLBACK','SetNavigraphAccessToken','amdb-bridge-local')"), "{src}");
+            assert!(out.trim_end().ends_with("},30000);"), "{src}");
+            assert!(patch_inibuilds_text(&out).is_none(), "idempotent: {src}");
+        }
+        assert!(patch_inibuilds_text("nothing here").is_none());
+        assert!(patch_inibuilds_text("x.on('SetNavigraphAccessToken',()=>{});").is_none(), "setter alone is not the request handler");
+    }
+
+    #[test]
+    fn inibuilds_scan_splits_a350_and_a380() {
+        let dir = std::env::temp_dir().join(format!("amdb-bridge-efb-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let a350 = dir.join("inibuilds-aircraft-a350").join("html_ui");
+        let a380 = dir.join("inibuilds-a380-airliner").join("html_ui");
+        fs::create_dir_all(&a350).unwrap();
+        fs::create_dir_all(&a380).unwrap();
+        fs::write(a350.join("ini-efb.js"), "x('RequestNavigraphAccessToken',()=>{a();});").unwrap();
+        fs::write(a380.join("a380-efb.js"), "x(\"RequestNavigraphAccessToken\",()=>{b();});").unwrap();
+        fs::write(a380.join("unrelated.js"), "x(\"RequestNavigraphAccessToken\",()=>{b();});").unwrap();
+        let all = scan_inibuilds(&dir);
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert_eq!(scan_a350(&dir).len(), 1);
+        assert_eq!(scan_a350(&dir)[0].0, "inibuilds-aircraft-a350");
+        assert_eq!(scan_a380(&dir).len(), 1);
+        assert_eq!(scan_a380(&dir)[0].0, "inibuilds-a380-airliner");
+        assert_eq!(patch_a380(&dir, false).unwrap().len(), 1);
+        assert!(scan_a380(&dir)[0].2, "patched flag set");
+        assert_eq!(patch_a380(&dir, false).unwrap().len(), 0, "second run patches nothing");
+        assert_eq!(unpatch(&dir).unwrap(), 1);
+        assert_eq!(fs::read_to_string(a380.join("a380-efb.js")).unwrap(), "x(\"RequestNavigraphAccessToken\",()=>{b();});");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

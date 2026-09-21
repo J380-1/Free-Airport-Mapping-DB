@@ -113,18 +113,18 @@ fn uninstall(relaunched: bool) -> i32 {
     0
 }
 
-/// `--setup-navigraph on|off`: A350/A380X support, for the installer and the option.
+/// `--setup-navigraph on|off`: A350/A380/A380X support, for the installer and the option.
 /// Asks Windows for administrator rights when this copy does not have them.
 fn setup_navigraph(on: bool, relaunched: bool) -> i32 {
     if instance::is_elevated() || relaunched {
         // Do the work here, whatever happens: a copy that has been elevated once must
         // never start another, or a failure repeats itself in an endless chain.
         if let Err(e) = desktop::setup_navigraph(on) {
-            amdbgen::term::error(&format!("A350/A380X setup failed: {e:#}. If security software protects the hosts file, allow AMDB Bridge to change it and try again."));
+            amdbgen::term::error(&format!("A350/A380/A380X setup failed: {e:#}. If security software protects the hosts file, allow AMDB Bridge to change it and try again."));
             return 1;
         }
     } else if !instance::run_elevated(if on { "--setup-navigraph on --relaunched" } else { "--setup-navigraph off --relaunched" }, true) {
-        amdbgen::term::warn("Administrator permission was not given, so A350/A380X support was not changed");
+        amdbgen::term::warn("Administrator permission was not given, so A350/A380/A380X support was not changed");
         return 1;
     }
     let done = desktop::navigraph_ready() == on;
@@ -135,7 +135,7 @@ fn setup_navigraph(on: bool, relaunched: bool) -> i32 {
         let mut s = Settings::load().unwrap_or_default();
         s.navigraph_redirect = on;
         let _ = s.save();
-        amdbgen::term::success(if on { "A350/A380X support set up" } else { "A350/A380X support removed" });
+        amdbgen::term::success(if on { "A350/A380/A380X support set up" } else { "A350/A380/A380X support removed" });
     }
     i32::from(!done)
 }
@@ -238,12 +238,16 @@ fn take_inventory(redirect: bool, serving_redirect: bool, xplane_on: bool) -> In
             } else if redirect {
                 "Not set up: tick the option again".to_string()
             } else {
-                "Needs the A350/A380X option below".to_string()
+                "Needs the A350/A380/A380X option below".to_string()
             }
         };
         if let Some(a350) = desktop::a350_state(&sim.community) {
             let status = if a350 == A350State::Patched { "Ready" } else { "Patched when serving starts" };
             rows.push([sim.name.clone(), "iniBuilds A350 OANS".into(), navigraph(status)]);
+        }
+        if let Some(a380) = desktop::a380_efb_state(&sim.community) {
+            let status = if a380 == A350State::Patched { "Ready" } else { "Patched when serving starts" };
+            rows.push([sim.name.clone(), "iniBuilds A380 OANS".into(), navigraph(status)]);
         }
         if desktop::a380x_in_community(&sim.community) {
             rows.push([sim.name.clone(), "FlyByWire A380X OANS".into(), navigraph("Ready")]);
@@ -440,7 +444,7 @@ impl App {
             (&mut ui.opt_login, "Open AMDB Bridge in the notification area when Windows starts"),
             (&mut ui.opt_sim, "Open AMDB Bridge when Microsoft Flight Simulator starts"),
             (&mut ui.opt_xplane, "Install the X-Plane 12 moving map when serving starts"),
-            (&mut ui.opt_redirect, "Also serve the iniBuilds A350 and FlyByWire A380X (asks for administrator permission once)"),
+            (&mut ui.opt_redirect, "Also serve the iniBuilds A350, iniBuilds A380 and FlyByWire A380X (asks for administrator permission once)"),
             (&mut ui.opt_cache, "Keep built airports on disk, so they load instantly next time"),
         ];
         for (i, (cb, text)) in opts.into_iter().enumerate() {
@@ -843,7 +847,7 @@ impl App {
                     1 => "1 airport loaded".to_string(),
                     n => format!("{n} airports loaded"),
                 };
-                let extra = if r.redirected { "  ·  A350/A380X on" } else { "" };
+                let extra = if r.redirected { "  ·  A350/A380/A380X on" } else { "" };
                 ("●  Serving maps", GREEN, format!("{airports}  ·  {storage}{extra}"), "Stop")
             }
             Phase::Failed => ("●  Could not start", RED, st.error.lines().next().unwrap_or_default().to_string(), "Try again"),
@@ -1064,8 +1068,8 @@ impl App {
             let choice = nwg::modal_message(
                 &self.ui.window,
                 &nwg::MessageParams {
-                    title: "Serve the A350 and A380X",
-                    content: "The iniBuilds A350 and FlyByWire A380X ask Navigraph's map server for airports directly. To answer them, AMDB Bridge points that address at this computer, installs a local certificate, and patches the A350's EFB so it does not ask you to sign in.\n\nWindows asks for administrator permission once. While this option is on, those aircraft get their airport maps from AMDB Bridge, so keep it running when you fly them. Untick it, or uninstall AMDB Bridge, to undo all of it.\n\nThe A220 map and X-Plane do not need this.",
+                    title: "Serve the A350, A380 and A380X",
+                    content: "The iniBuilds A350, iniBuilds A380 and FlyByWire A380X ask Navigraph's map server for airports directly. To answer them, AMDB Bridge points that address at this computer, installs a local certificate, and patches the iniBuilds EFBs so they do not ask you to sign in.\n\nWindows asks for administrator permission once. While this option is on, those aircraft get their airport maps from AMDB Bridge, so keep it running when you fly them. Untick it, or uninstall AMDB Bridge, to undo all of it.\n\nThe A220 map and X-Plane do not need this.",
                     buttons: nwg::MessageButtons::OkCancel,
                     icons: nwg::MessageIcons::Info,
                 },
