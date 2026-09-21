@@ -186,6 +186,17 @@ pub fn a350_state(community: &Path) -> Option<A350State> {
     Some(if found.iter().all(|(_, _, patched)| *patched) { A350State::Patched } else { A350State::NotPatched })
 }
 
+/// The iniBuilds A380 EFBs found in a Community folder. The A380 ships a redesigned
+/// EFB under different bundle names, so it is detected separately from the A350:
+/// without its own token patch its OANS gauge reports ARPT NAV NOT AVAILABLE.
+pub fn a380_efb_state(community: &Path) -> Option<A350State> {
+    let found = patcher::scan_a380(community);
+    if found.is_empty() {
+        return None;
+    }
+    Some(if found.iter().all(|(_, _, patched)| *patched) { A350State::Patched } else { A350State::NotPatched })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum XPlaneState {
     NoFlyWithLua,
@@ -260,14 +271,14 @@ pub fn set_start_with_sim(on: bool, exe: &Path) -> Result<Vec<PathBuf>> {
     Ok(changed)
 }
 
-/// A350/A380X support is set up on this computer: the Navigraph map server's address
+/// A350/A380/A380X support is set up on this computer: the Navigraph map server's address
 /// points here and the certificate that answers for it is trusted.
 pub fn navigraph_ready() -> bool {
     let domain = super::NAVIGRAPH_AMDB_DOMAIN;
     super::hosts::is_installed(domain) && super::tls::data_dir().join("ca.pem").is_file() && super::tls::is_trusted()
 }
 
-/// Set up (or take down) A350/A380X support. Needs administrator rights, and is done
+/// Set up (or take down) A350/A380/A380X support. Needs administrator rights, and is done
 /// once rather than every time serving starts: the address stays pointed here while
 /// the option is on, and the app then serves those aircraft as a normal user.
 pub fn setup_navigraph(on: bool) -> Result<()> {
@@ -298,15 +309,26 @@ fn allow_port_443() {
     }
 }
 
-/// Patch every iniBuilds A350 EFB found, so its airport map does not wait for a
-/// Navigraph sign-in. Returns one line per aircraft changed.
+/// Patch every iniBuilds EFB found (A350 and A380), so their airport maps do not
+/// wait for a Navigraph sign-in. Returns one line per aircraft changed.
 pub fn patch_a350_everywhere() -> Vec<String> {
+    patch_inibuilds_everywhere()
+}
+
+/// Patch every iniBuilds EFB found (A350 and A380), so their airport maps do not
+/// wait for a Navigraph sign-in. Returns one line per aircraft changed.
+pub fn patch_inibuilds_everywhere() -> Vec<String> {
     let mut notes = Vec::new();
     for sim in detect_sims() {
         match patcher::patch_a350(&sim.community, false) {
             Ok(files) if !files.is_empty() => notes.push(format!("{}: iniBuilds A350 EFB patched so its airport map works without a Navigraph subscription", sim.name)),
             Ok(_) => {}
             Err(e) => notes.push(format!("{}: could not patch the iniBuilds A350 EFB: {e:#}", sim.name)),
+        }
+        match patcher::patch_a380(&sim.community, false) {
+            Ok(files) if !files.is_empty() => notes.push(format!("{}: iniBuilds A380 EFB patched so its airport map works without a Navigraph subscription", sim.name)),
+            Ok(_) => {}
+            Err(e) => notes.push(format!("{}: could not patch the iniBuilds A380 EFB: {e:#}", sim.name)),
         }
     }
     notes

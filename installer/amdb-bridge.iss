@@ -48,7 +48,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "a220map"; Description: "Install the airport moving map for the Synaptic A220 into Microsoft Flight Simulator 2020 and 2024"; GroupDescription: "Simulators:"
-Name: "a350"; Description: "Set up the iniBuilds A350 and FlyByWire A380X airport maps (Windows asks for administrator permission)"; GroupDescription: "Simulators:"
+Name: "a350"; Description: "Set up the iniBuilds A350, iniBuilds A380 and FlyByWire A380X airport maps (Windows asks for administrator permission)"; GroupDescription: "Simulators:"
 Name: "startup"; Description: "Open AMDB Bridge in the notification area when Windows starts"; GroupDescription: "Starting up:"; Flags: unchecked
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
@@ -68,7 +68,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Parameters: "--install-a220"; StatusMsg: "Installing the A220 moving map..."; Tasks: a220map; Flags: runhidden waituntilterminated
-Filename: "{app}\{#AppExe}"; Parameters: "--setup-navigraph on"; StatusMsg: "Setting up the A350 and A380X..."; Tasks: a350; Flags: runhidden waituntilterminated
+Filename: "{app}\{#AppExe}"; Parameters: "--setup-navigraph on"; StatusMsg: "Setting up the A350, A380 and A380X..."; Tasks: a350; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExe}"; Parameters: "--run-at-login on"; Tasks: startup; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExe}"; Description: "Open AMDB Bridge now"; Flags: postinstall nowait skipifsilent
 

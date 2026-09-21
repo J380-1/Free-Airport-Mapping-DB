@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- **iniBuilds A380 support.** The A380's redesigned EFB was never patched, so its OANS
+  gauge got no token and reported `ARPT NAV NOT AVAILABLE (NAVIGRAPH)` even while the
+  bridge served data. The EFB token patch now matches any iniBuilds EFB/OIS bundle and
+  handler spelling (A350 and A380), with the A380 listed separately in `status` and the
+  desktop app.
+- **Navigraph-schema fix for routing nodes.** Runway-associated ASRN nodes were served
+  with `"idthr": null`, but the SDK declares `idthr` a required string for
+  RunwayExitLine nodes; newer clients (A380 BTV exit lookup) fail validation where the
+  older A350/A380X never read ASRN at all. The bridge now derives the threshold from
+  the node's runway.
+- **Protocol hardening.** `/v1/search` accepts `query=`/`search=`/`term=` besides `q=`,
+  endpoint names match case-insensitively, a bare `/v1` probe is answered, and the
+  A380's `KittyHawk` User-Agent is recognised in the log instead of hiding as a raw
+  string.
+
 ## 0.4.2 (2026-09-19)
 
 - **Linux.** `amdb-bridge` and `amdbgen` run on any 64-bit Linux (a static build). They

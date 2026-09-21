@@ -124,6 +124,13 @@ pub fn client_idrwy(s: &str) -> String {
     s.split('+').map(|pair| pair.split('/').map(pad_designator).collect::<Vec<_>>().join(".")).collect::<Vec<_>>().join("_")
 }
 
+/// First threshold designator of a runway identifier: `07L/25R` (or its client
+/// spelling `07L.25R`) -> `07L`, zero-padded the way the API spells thresholds.
+fn first_threshold(idrwy: &str) -> String {
+    let first = idrwy.split(['/', '.', '_', '+', ' ']).map(str::trim).find(|s| !s.is_empty()).unwrap_or("");
+    pad_designator(first)
+}
+
 // ---- enum translators (amdbgen code -> Navigraph code) ------------------------------
 
 fn surftype(v: Option<i64>) -> i64 {
@@ -530,7 +537,16 @@ pub fn convert(feat: &mut AmdbFeature, seq: usize) -> bool {
                     put("catstop", Value::from(UNKNOWN));
                     put("featref", Value::from(UNKNOWN));
                 }
-                3 => put("idthr", Value::Null),
+                // RunwayExitLineNode (which is also what every runway-associated node
+                // maps to, including runway ends) requires the designator of the
+                // closest threshold on the same runway as a string. The routing graph
+                // only records the runway, so use its first end; a null here fails
+                // schema validation in newer clients (notably the iniBuilds A380's
+                // BTV runway-exit lookup) while older ones never read ASRN at all.
+                3 => {
+                    let thr = s(&p, "idrwy").map(|r| first_threshold(&r)).unwrap_or_default();
+                    put("idthr", Value::from(thr));
+                }
                 5 | 9 => put("termref", Value::Null),
                 _ => {}
             }
@@ -584,5 +600,23 @@ mod tests {
         let mut sign = AmdbFeature::new(Layer::AerodromeSign, Point::new(0.0, 0.0));
         assert!(!convert(&mut sign, 0));
         assert_eq!(NAVIGRAPH_LAYERS.len(), 36);
+    }
+
+    #[test]
+    fn asrn_runway_nodes_carry_a_threshold_string() {
+        // The SDK declares RunwayExitLineNode.idthr as a required string; a null
+        // fails validation in newer clients (iniBuilds A380 BTV exit lookup).
+        assert_eq!(first_threshold("07L/25R"), "07L");
+        assert_eq!(first_threshold("7/25"), "07");
+        assert_eq!(first_threshold("07L.25R"), "07L");
+        let mut n = AmdbFeature::new(Layer::AsrnNode, Point::new(0.0, 0.0)).with("idarpt", "OMDB").with("nodeid", 3).with("nodetype", crate::model::codes::nodetype::RUNWAY).with("idrwy", "12L/30R");
+        assert!(convert(&mut n, 3));
+        assert_eq!(n.props["nodetype"], 3);
+        assert_eq!(n.props["idthr"], "12L");
+        assert_eq!(n.props["id"], 40_000_000 + 3 + 1);
+        // Nodes without a recorded runway still emit a string, never null.
+        let mut bare = AmdbFeature::new(Layer::AsrnNode, Point::new(0.0, 0.0)).with("idarpt", "OMDB").with("nodeid", 9).with("nodetype", crate::model::codes::nodetype::RUNWAY_EXIT);
+        assert!(convert(&mut bare, 9));
+        assert!(bare.props["idthr"].is_string());
     }
 }

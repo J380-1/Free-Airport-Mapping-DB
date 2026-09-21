@@ -80,6 +80,12 @@ fn parse_query(q: &str) -> Map<String, Value> {
     m
 }
 
+/// The airport search text: the SDK sends `q=`; neighbouring spellings a newer
+/// client may use are accepted rather than answering the whole database.
+fn search_query<'a>(params: &'a Map<String, Value>) -> &'a str {
+    ["q", "query", "search", "term"].iter().filter_map(|k| params.get(*k).and_then(Value::as_str)).next().unwrap_or("")
+}
+
 /// Current AIRAC-style cycle (28-day cycles from a known start).
 pub fn cycle_json() -> Value {
     let epoch = chrono::NaiveDate::from_ymd_opt(2026, 9, 3).unwrap(); // AIRAC 2609 start
@@ -180,6 +186,12 @@ fn client_name(agent: &str) -> String {
     let a = agent.to_ascii_lowercase();
     if a.contains("flybywire") || a.contains("fbw") {
         "FlyByWire".to_string()
+    } else if a.contains("kittyhawk") || (a.contains("inibuilds") && a.contains("a380")) {
+        // User-Agent observed from the iniBuilds A380's WASM gauge
+        // (`KittyHawk/0.9 (Windows; Desktop; Client/0.1)`).
+        "iniBuilds A380".to_string()
+    } else if a.contains("a380") {
+        "A380".to_string()
     } else if a.contains("inibuilds") || a.contains("a350") {
         "iniBuilds".to_string()
     } else if a.contains("wasm") || a.contains("msfs") || a.contains("flightsimulator") {
@@ -287,12 +299,15 @@ fn handle(store: Arc<Store>, req: Request) {
         handle_xp(store, req, &rest, &params);
         return;
     }
-    let Some(pos) = path.find("/v1/") else {
+    let empty = String::new();
+    let Some(rest) = path.find("/v1/").map(|pos| path[pos + 4..].trim_matches('/').to_string()).or_else(|| {
+        // A bare `/v1` probe without a trailing slash is the service root too.
+        path.trim_end_matches('/').ends_with("/v1").then(|| empty.clone())
+    }) else {
         crate::term::warn(&format!("Unrecognised request {} {}", req.method(), url.chars().take(600).collect::<String>()));
         respond_json(req, 404, json!({"error":"not found","hint":"expected /v1/..."}).to_string());
         return;
     };
-    let rest = path[pos + 4..].trim_matches('/');
     let agent = req.headers().iter().find(|h| h.field.equiv("User-Agent")).map(|h| h.value.as_str().to_string()).unwrap_or_default();
     let auth = req.headers().iter().any(|h| h.field.equiv("Authorization"));
     crate::term::step(None, &format!("{} /v1/{}{}  from {}{}", req.method(), rest, if query.is_empty() { String::new() } else { format!("?{}", if query.len() > 90 { format!("{}…", &query[..90]) } else { query.to_string() }) }, client_name(&agent), if auth { " (with token)" } else { "" }));
@@ -306,14 +321,14 @@ fn handle(store: Arc<Store>, req: Request) {
     let head = parts.next().unwrap_or("");
     let tail = parts.next();
     match (head, tail) {
-        ("cycle", None) => respond_json(req, 200, cycle_json().to_string()),
-        ("search", None) => {
-            let q = params.get("q").and_then(Value::as_str).unwrap_or("");
+        (h, None) if h.eq_ignore_ascii_case("cycle") => respond_json(req, 200, cycle_json().to_string()),
+        (h, None) if h.eq_ignore_ascii_case("search") => {
+            let q = search_query(&params);
             let results = store.search(q);
             crate::term::info(&format!("Search {:?}: {} airports", q, results.len()));
             respond_json(req, 200, Value::Array(results).to_string());
         }
-        ("nearest", None) => {
+        (h, None) if h.eq_ignore_ascii_case("nearest") => {
             let num = |k: &str| params.get(k).and_then(Value::as_str).and_then(|s| s.parse::<f64>().ok());
             match (num("lat"), num("lon")) {
                 (Some(lat), Some(lon)) if lat.abs() <= 90.0 && lon.abs() <= 180.0 => {
@@ -369,7 +384,7 @@ fn handle(store: Arc<Store>, req: Request) {
         }
         _ => {
             crate::term::warn(&format!("Unknown request /v1/{rest}"));
-            respond_json(req, 404, json!({"error":"not found","path":rest}).to_string())
+            respond_json(req, 404, json!({"error":"not found","path": &rest}).to_string())
         }
     }
 }
@@ -476,5 +491,200 @@ mod tests {
         let d = derived_props(&Geometry::LineString(LineString(vec![Coord { x: 0.0, y: 0.0 }, Coord { x: 10.0, y: 0.0 }, Coord { x: 10.0, y: 4.0 }])), 2);
         assert_eq!(d[1].1, 10.0);
         assert_eq!(d[0].1["coordinates"], json!([7.0, 0.0]));
+    }
+
+    #[test]
+    fn names_clients_including_the_a380() {
+        assert_eq!(client_name("KittyHawk/0.9 (Windows; Desktop; Client/0.1)"), "iniBuilds A380");
+        assert_eq!(client_name("inibuilds-a380-efb/1.0"), "iniBuilds A380");
+        assert_eq!(client_name("iniBuilds A350 OANS"), "iniBuilds");
+        assert_eq!(client_name("FlyByWire A380X"), "FlyByWire");
+        assert_eq!(client_name(""), "unknown client");
+    }
+
+    #[test]
+    fn search_accepts_neighbouring_param_names() {
+        assert_eq!(search_query(&parse_query("q=OMD")), "OMD");
+        assert_eq!(search_query(&parse_query("query=OMDB")), "OMDB");
+        assert_eq!(search_query(&parse_query("search=OMDB")), "OMDB");
+        assert_eq!(search_query(&parse_query("term=OMDB")), "OMDB");
+        assert_eq!(search_query(&parse_query("unrelated=1")), "");
+        // The documented name wins when several are present.
+        assert_eq!(search_query(&parse_query("query=XXXX&q=OMDB")), "OMDB");
+    }
+
+    /// End-to-end replay of the iniBuilds A380 request sequence from the user's log
+    /// (`KittyHawk` UA: `/v1/search`, `/v1/cycle`, `/v1/OMDB`) against a fixture
+    /// airport: status codes, content types and the response schema the aircraft
+    /// validates, including the ASRN `idthr` string newer clients require.
+    #[test]
+    fn serves_the_a380_request_sequence() {
+        use crate::build::BuildOptions;
+        use crate::cache::Cache;
+        use crate::output::{Formats, Projection};
+        use crate::pipeline::{Config, FaaMode, OsmMode};
+
+        let root = std::env::temp_dir().join(format!("amdb-bridge-a380-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("out").join("OMDB");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            serde_json::json!({
+                "icao": "OMDB", "iata": "DXB", "name": "Dubai Intl", "country": null,
+                "arp": [25.2532, 55.3657], "elevation_ft": 62.0, "projection": "AEQD_ARP_METRES",
+                "formats": ["geojson"], "generated": "test", "generator": "test",
+                "sources": ["test"], "bbox": null, "layers": {}, "warnings": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let feat = |geom: serde_json::Value, props: serde_json::Value| serde_json::json!({"type": "Feature", "geometry": geom, "properties": props});
+        let fc = |feats: Vec<serde_json::Value>| serde_json::json!({"type": "FeatureCollection", "features": feats}).to_string();
+        let pt = |x: f64, y: f64| serde_json::json!({"type": "Point", "coordinates": [x, y]});
+        std::fs::write(
+            dir.join("aerodromereferencepoint.geojson"),
+            fc(vec![feat(pt(0.0, 0.0), serde_json::json!({"idarpt": "OMDB", "name": "Dubai Intl", "iata": "DXB", "elev": 62.0}))]),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("runwayelement.geojson"),
+            fc(vec![feat(
+                serde_json::json!({"type": "Polygon", "coordinates": [[[0.0, 0.0], [4000.0, 0.0], [4000.0, 60.0], [0.0, 60.0], [0.0, 0.0]]]}),
+                serde_json::json!({"idarpt": "OMDB", "idrwy": "12L/30R", "width": 60.0, "length": 4000.0, "surftype": 4}),
+            )]),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("runwaythreshold.geojson"),
+            fc(vec![feat(pt(0.0, 0.0), serde_json::json!({"idarpt": "OMDB", "idthr": "12L", "tora": 4000.0}))]),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("taxiwayguidanceline.geojson"),
+            fc(vec![feat(
+                serde_json::json!({"type": "LineString", "coordinates": [[0.0, 0.0], [500.0, 0.0]]}),
+                serde_json::json!({"idarpt": "OMDB", "idlin": "A"}),
+            )]),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("asrnnode.geojson"),
+            fc(vec![feat(pt(0.0, 0.0), serde_json::json!({"idarpt": "OMDB", "nodeid": 0, "nodetype": 2, "idrwy": "12L/30R"}))]),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("asrnedge.geojson"),
+            fc(vec![feat(
+                serde_json::json!({"type": "LineString", "coordinates": [[0.0, 0.0], [100.0, 0.0]]}),
+                serde_json::json!({"idarpt": "OMDB", "edgeid": 0, "stnode": 0, "ennode": 0, "edgetype": 2, "direc": 1, "edgelen": 100.0}),
+            )]),
+        )
+        .unwrap();
+        // A second airport so search and serving cover more than one fixture.
+        let egll = root.join("out").join("EGLL");
+        std::fs::create_dir_all(&egll).unwrap();
+        std::fs::write(
+            egll.join("manifest.json"),
+            serde_json::json!({
+                "icao": "EGLL", "iata": "LHR", "name": "London Heathrow", "country": null,
+                "arp": [51.4700, -0.4543], "elevation_ft": 83.0, "projection": "AEQD_ARP_METRES",
+                "formats": ["geojson"], "generated": "test", "generator": "test",
+                "sources": ["test"], "bbox": null, "layers": {}, "warnings": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            egll.join("runwaythreshold.geojson"),
+            fc(vec![feat(pt(0.0, 0.0), serde_json::json!({"idarpt": "EGLL", "idthr": "9L", "tora": 3900.0}))]),
+        )
+        .unwrap();
+
+        let cfg = Config {
+            out: root.join("out"),
+            cache: Cache::new(None, true, false),
+            http: crate::sources::http::Http::new(5, 0),
+            formats: Formats { geojson: true, pbf: false },
+            projection: Projection::Wgs84,
+            xplane_dir: None,
+            aptdat_file: None,
+            use_gateway: false,
+            osm: OsmMode::Off,
+            overpass_mirrors: Vec::new(),
+            aptmeta: None,
+            ourairports: false,
+            faa: FaaMode::Off,
+            overrides_dir: root.join("overrides"),
+            radius_km: 3.0,
+            build: BuildOptions::default(),
+            write_ir: false,
+            layers: crate::model::ALL_LAYERS.to_vec(),
+            index_cache: Cache::for_index(true),
+            osm_parallel: 1,
+            faa_amdb: false,
+        };
+        let store = Arc::new(Store::new(cfg).unwrap());
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let handle = start(store, Listen { http_port: Some(port), https: None }).unwrap();
+
+        let agent = ureq::Agent::config_builder().timeout_global(Some(std::time::Duration::from_secs(10))).build().new_agent();
+        let kitty = "KittyHawk/0.9 (Windows; Desktop; Client/0.1)";
+        let get = |path: &str| {
+            let mut resp = agent.get(&format!("http://127.0.0.1:{port}{path}")).header("User-Agent", kitty).call().unwrap();
+            let ct = resp.headers().get("content-type").map(|v| v.to_str().unwrap_or("").to_string()).unwrap_or_default();
+            let cors = resp.headers().get("access-control-allow-origin").map(|v| v.to_str().unwrap_or("").to_string()).unwrap_or_default();
+            let body = resp.body_mut().with_config().limit(16 * 1024 * 1024).read_to_string().unwrap();
+            (resp.status().as_u16(), ct, cors, body)
+        };
+
+        let (status, ct, cors, body) = get("/v1/cycle");
+        assert_eq!(status, 200);
+        assert!(ct.contains("application/json"), "{ct}");
+        assert_eq!(cors, "*");
+        let cycle: Value = body.parse().unwrap();
+        assert!(cycle["airac_cycle"].is_number(), "{cycle}");
+
+        let (status, _, _, body) = get("/v1/CYCLE");
+        assert_eq!(status, 200, "endpoint names are case-insensitive");
+        assert!(body.contains("airac_cycle"));
+
+        let (status, _, _, body) = get("/v1/search?query=OMD");
+        assert_eq!(status, 200);
+        assert!(body.contains("\"idarpt\":\"OMDB\""), "{body}");
+
+        let (status, _, _, body) = get("/v1/EGLL?include=runwaythreshold");
+        assert_eq!(status, 200, "second fixture airport serves too");
+        assert!(body.contains("\"idthr\":\"09L\""), "{body}");
+
+        let (status, _, _, body) = get("/v1");
+        assert_eq!(status, 200, "bare /v1 probe");
+        assert!(body.contains("amdb-bridge"));
+
+        // The exact OMDB fetch from the log, as a layer subset like the aircraft asks.
+        let (status, ct, _, body) = get("/v1/OMDB?include=runwayelement,asrnnode&projection=EPSG:4326");
+        assert_eq!(status, 200);
+        assert!(ct.contains("application/json"));
+        let ap: Value = body.parse().unwrap();
+        assert_eq!(ap["runwayelement"]["features"][0]["properties"]["idrwy"], "12L.30R");
+        assert_eq!(ap["runwayelement"]["features"][0]["properties"]["feattype"], 0);
+        let node = &ap["asrnnode"]["features"][0]["properties"];
+        assert_eq!(node["nodetype"], 3);
+        assert_eq!(node["idthr"], "12L", "runway nodes carry a threshold string, never null");
+        assert_eq!(node["id"], 40_000_001);
+
+        let (status, _, _, body) = get("/v1/omdb/runwaythreshold");
+        assert_eq!(status, 200, "lowercase ICAO");
+        assert!(body.contains("\"idthr\":\"12L\""), "{body}");
+
+        let (status, _, _, body) = get("/v1/OMDB/touchdownliftofarea");
+        assert_eq!(status, 200, "FlyByWire's historic misspelling still answered");
+        assert!(body.contains("\"features\":[]"), "{body}");
+
+        let err = agent.get(&format!("http://127.0.0.1:{port}/v1/TOOLONG")).header("User-Agent", kitty).call().unwrap_err();
+        assert!(matches!(err, ureq::Error::StatusCode(404)), "{err:?}");
+
+        handle.stop();
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

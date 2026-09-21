@@ -192,9 +192,9 @@ enum values. No Navigraph account is needed. `patch` / `unpatch` are a no-admin
 alternative that rewrites the aircraft bundles instead.
 
 Aircraft: FlyByWire A380X (OANS + BTV, tested), FlyByWire A32NX development builds,
-iniBuilds A350 (its EFB only hands the OANS gauge a token with a Navigraph
-subscription, so `serve` rewrites that one handler; backup kept, `unpatch` restores,
-`--no-patch` skips), and the GM5 A220 Airport Moving Map for the Synaptic A220
+iniBuilds A350 and iniBuilds A380 (their EFBs only hand the OANS gauge a token with a
+Navigraph subscription, so `serve` rewrites those handlers, A380 included despite its
+redesigned EFB; backups kept, `unpatch` restores, `--no-patch` skips), and the GM5 A220 Airport Moving Map for the Synaptic A220
 (`serve` adds a token fallback and lets it find the airport through the bridge's
 `/v1/nearest`, since the sim-side search returns nothing under MSFS 2020; on 2020 the
 package folder must sort after `synaptic-aircraft-a220`, e.g. `zzz-gm5-a220-amm`,

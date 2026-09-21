@@ -37,7 +37,7 @@ impl Running {
         self.handle.store.loaded_count()
     }
 
-    /// Stop serving. The A350/A380X setup stays in place for next time.
+    /// Stop serving. The A350/A380/A380X setup stays in place for next time.
     pub fn stop(self) {
         self.handle.stop();
         crate::term::info("Stopped serving");
@@ -113,14 +113,14 @@ pub fn start(settings: &Settings, opts: &Options) -> Result<Running> {
                 crate::term::success(&note);
             }
         } else {
-            crate::term::warn("A350/A380X support is not set up on this computer; untick and tick its option to set it up");
+            crate::term::warn("A350/A380/A380X support is not set up on this computer; untick and tick its option to set it up");
         }
     }
     crate::term::info(&format!("Storage: {}", describe_storage(settings)));
     let store = Arc::new(make_store(&DataArgs::default(), settings)?);
     let handle = server::start(store, Listen { http_port: Some(http_port), https })?;
     if redirected {
-        crate::term::success("Serving the iniBuilds A350 and FlyByWire A380X too");
+        crate::term::success("Serving the iniBuilds A350, iniBuilds A380 and FlyByWire A380X too");
     }
     if opts.xplane {
         if let Some(root) = crate::sources::xplane::local::detect_install() {
