@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Token stores for sealed aircraft.** `amdb-bridge seed-token` seeds the writable
+  Navigraph token files of encrypted aircraft (e.g. the Marketplace A380's
+  `navigraph.txt` in its WASM work folder) with the bridge placeholder, with backups;
+  `unseed-token` restores, `status` reports them, and `collect` lists them by name.
+  Same effect as the EFB patch, through files the DRM seal does not cover.
 - **iniBuilds A380 support.** The A380's redesigned EFB was never patched, so its OANS
   gauge got no token and reported `ARPT NAV NOT AVAILABLE (NAVIGRAPH)` even while the
   bridge served data. The EFB token patch now matches any iniBuilds EFB/OIS bundle and

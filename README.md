@@ -200,6 +200,28 @@ redesigned EFB; backups kept, `unpatch` restores, `--no-patch` skips), and the G
 package folder must sort after `synaptic-aircraft-a220`, e.g. `zzz-gm5-a220-amm`,
 which `tools/port_a220_amm.py` does for you).
 
+### Encrypted aircraft (e.g. the Marketplace iniBuilds A380)
+
+Sealed aircraft cannot be patched: their EFB files are encrypted, so the handler
+rewrite above never reaches them and the gauge keeps reporting `ARPT NAV NOT
+AVAILABLE (NAVIGRAPH)` even while the bridge serves data. Those aircraft still keep
+writable per-aircraft data outside the sealed package — the MSFS WASM work folders —
+including the file the EFB persists its Navigraph token in. Seeding that file with
+the bridge placeholder performs exactly the EFB patch by other means:
+
+```
+amdb-bridge status       # look for "Sealed aircraft token stores"
+amdb-bridge seed-token   # backup kept next to each file
+amdb-bridge serve        # then load the aircraft; its own map should draw
+amdb-bridge unseed-token # restores the originals byte for byte
+```
+
+To confirm it works, trigger the airport map and look for `(with token)` next to
+your aircraft in the bridge log: requests arriving *without* a token mean the gauge
+never picked the seeded file up (restart the flight after seeding). Only recognised
+shapes are ever written (a bare `navigraph*.txt`, or a JSON store where a single
+token value is replaced); anything else is reported and left alone.
+
 ## Airport moving map for the A220 (MSFS)
 
 An airport moving map for the Synaptic A220, as its own Community package rather than a

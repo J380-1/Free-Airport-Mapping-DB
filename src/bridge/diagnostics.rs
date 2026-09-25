@@ -391,6 +391,26 @@ pub fn collect(dir: &Path, filter: Option<&str>) -> Result<PathBuf> {
     }
 
     let _ = writeln!(r, "\n======================================================================");
+    let _ = writeln!(r, "Sealed aircraft token stores (names only, never contents)");
+    let stores = super::tokenstore::scan();
+    if stores.is_empty() {
+        let _ = writeln!(r, "(none found in the MSFS WASM work folders)");
+    }
+    for s in stores {
+        let size = s.path.metadata().map(|m| m.len()).unwrap_or(0);
+        let _ = writeln!(
+            r,
+            "  {}  {}  {}  ({} bytes, {:?}, {})",
+            s.sim,
+            s.package,
+            s.path.file_name().unwrap_or_default().to_string_lossy(),
+            size,
+            s.kind,
+            if s.seeded { "seeded" } else if s.backed_up { "backup present" } else { "untouched" }
+        );
+    }
+
+    let _ = writeln!(r, "\n======================================================================");
     let _ = writeln!(r, "Send this file together with the AMDB-Bridge-log file saved next to it.");
 
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;

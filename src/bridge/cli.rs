@@ -367,6 +367,12 @@ enum Cmd {
         #[arg(long = "community")]
         community: Vec<PathBuf>,
     },
+    /// Seed sealed aircraft token stores (e.g. the Marketplace A380's navigraph.txt)
+    /// with the bridge placeholder so their OANS works without a Navigraph
+    /// subscription (backups kept). For Community installs prefer `serve`/`patch`.
+    SeedToken,
+    /// Restore token stores changed by `seed-token`.
+    UnseedToken,
 }
 
 /// Saved settings (asking on the first run), with this run's overrides applied.
@@ -648,6 +654,22 @@ pub fn run() -> Result<()> {
                     println!("  PATCHED {}", f.path.display());
                 }
             }
+            let stores = super::tokenstore::scan();
+            if stores.is_empty() {
+                println!("Sealed aircraft token stores: none found");
+            } else {
+                println!("Sealed aircraft token stores:");
+                for s in stores {
+                    let state = if s.seeded {
+                        "SEEDED (OANS works without a Navigraph subscription)"
+                    } else if s.kind == super::tokenstore::StoreKind::Unknown {
+                        "unrecognised shape (left alone; mention it with `collect`)"
+                    } else {
+                        "not seeded (run `seed-token`)"
+                    };
+                    println!("  {}  {}  {}: {}", s.sim, s.package, s.path.file_name().unwrap_or_default().to_string_lossy(), state);
+                }
+            }
             Ok(())
         }
         Cmd::Setup => {
@@ -714,6 +736,34 @@ pub fn run() -> Result<()> {
                 total += patcher::unpatch(&d)?;
             }
             println!("{total} file(s) restored");
+            Ok(())
+        }
+        Cmd::SeedToken => {
+            let mut total = 0;
+            for s in super::tokenstore::scan() {
+                match super::tokenstore::seed(&s) {
+                    Ok(true) => {
+                        println!("SEEDED {} ({})", s.path.display(), s.package);
+                        total += 1;
+                    }
+                    Ok(false) => println!("already seeded: {} ({})", s.path.display(), s.package),
+                    Err(e) => println!("skipped {}: {e:#}", s.path.display()),
+                }
+            }
+            if total == 0 {
+                println!("no recognised token stores found (is a sealed iniBuilds aircraft installed and run once?)");
+            }
+            Ok(())
+        }
+        Cmd::UnseedToken => {
+            let mut total = 0;
+            for s in super::tokenstore::scan() {
+                if super::tokenstore::unseed(&s)? {
+                    println!("restored {}", s.path.display());
+                    total += 1;
+                }
+            }
+            println!("{total} token store(s) restored");
             Ok(())
         }
     }
