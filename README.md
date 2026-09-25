@@ -218,12 +218,12 @@ Flight-tested result on the iniBuilds A380: seeding alone does **not** unlock it
 The gauge never reads that file — the token reaches it only through the sealed EFB
 over the comm bus — so a seeded store plus zero bridge requests means the file
 channel is a dead end for that aircraft, and `seed-token` remains a diagnostic aid.
-What can still work without a paid subscription: sign the EFB in with a **free**
-Navigraph account and trigger the map. The bridge ignores token scope and serves its
-own free data to any bearer, so if the gauge only needs a genuine token the map
-draws; if it still shows `NOT AVAILABLE` despite requests arriving, the gauge
-enforces a paid subscription server-side and there is no free route to the built-in
-map. `amdb-bridge unseed-token` restores the originals byte for byte.
+A free Navigraph sign-in was flight-tested next: the EFB still wipes the store at
+load and the gauge sends nothing, so the sealed EFB only hands over a token with a
+paid Unlimited subscription. With Unlimited signed in, the bridge serves its own
+free data to that token over the existing redirect — no further purchase or code is
+needed on the data side. `amdb-bridge unseed-token` restores the originals byte for
+byte.
 
 ## Airport moving map for the A220 (MSFS)
 
