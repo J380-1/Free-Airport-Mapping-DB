@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="Windows-1252"?>
+<SimBase.Document Type="InGamePanels" version="1,0">
+  <Filename>amdb-injector-shim.spb</Filename>
+  <InGamePanels.InGamePanelDefinition id="PANEL_AMDB_SHIM" Name="AMDBShim" url="html_UI/ingamePanels/AMDBShim/AMDBShim.html" resizeDirections="Both" minWidth="30" minHeight="20" defaultWidth="38" defaultHeight="26" defaultTop="33" defaultRight="2" icon="ICON_TOOLBAR_AMDB_SHIM" buttonVisible="true">
+  </InGamePanels.InGamePanelDefinition>
+</SimBase.Document>

@@ -1,0 +1,7 @@
+html, body { margin: 0; padding: 0; background: #000; height: 100%; overflow: hidden; }
+#amdbshim-wrap { padding: 10px 12px; background: #000; color: #d8d8d8;
+    font-family: monospace; font-size: 13px; }
+#amdbshim-wrap tt { color: #e8d84a; }
+#amdbshim-status { color: #7fd87f; min-height: 16px; }
+#amdbshim-push { background: #1e242b; color: #d8d8d8; border: 1px solid #3a434d;
+    font-family: monospace; font-size: 13px; padding: 4px 12px; cursor: pointer; }

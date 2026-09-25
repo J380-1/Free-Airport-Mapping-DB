@@ -1,0 +1,22 @@
+<AssetPackage Name="amdb-injector-shim" Version="0.4.2">
+	<ItemSettings>
+		<ContentType>SPB</ContentType>
+		<Title>amdb-injector-shim</Title>
+		<Manufacturer>Free Airport Mapping DB</Manufacturer>
+		<Creator>Free Airport Mapping DB</Creator>
+	</ItemSettings>
+	<Flags>
+		<VisibleInStore>false</VisibleInStore>
+		<CanBeReferenced>false</CanBeReferenced>
+	</Flags>
+	<AssetGroups>
+		<AssetGroup Name="amdb-injector-shim">
+			<Type>SPB</Type>
+			<Flags>
+				<FSXCompatibility>false</FSXCompatibility>
+			</Flags>
+			<AssetDir>PackageSources\</AssetDir>
+			<OutputDir>Build\</OutputDir>
+		</AssetGroup>
+	</AssetGroups>
+</AssetPackage>

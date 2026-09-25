@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="/SCSS/common.css" />
+    <link rel="stylesheet" href="AMDBShim.css" />
+    <script type="text/javascript" src="/JS/coherent.js"></script>
+    <script type="text/javascript" src="/JS/common.js"></script>
+    <script type="text/javascript" src="/JS/dataStorage.js"></script>
+    <script type="text/javascript" src="/JS/Services/ToolBarPanels.js"></script>
+    <link rel="import" href="/templates/ingameUi/ingameUi.html" />
+    <link rel="import" href="/templates/ingameUiHeader/ingameUiHeader.html" />
+    <script type="text/javascript" src="AMDBShim.js"></script>
+</head>
+<body class="border-box">
+    <amdb-shim>
+        <ingame-ui id="AMDBShim" panel-id="PANEL_AMDB_SHIM" title="AMDB Token Shim" class="ingameUiFrame panelInvisible" content-fit="true" min-width="300" min-height="200">
+            <div id="amdbshim-wrap">
+                <p><b>AMDB token shim.</b> Keep this panel open while flying an encrypted
+                iniBuilds aircraft (e.g. the Marketplace A380). It answers the OANS gauge's
+                Navigraph token requests with the bridge placeholder, so the aircraft's
+                <b>own</b> airport map draws from amdb-bridge. No Navigraph account needed.</p>
+                <p>Check it works: trigger the airport map, then look for
+                <tt>(with token)</tt> next to your aircraft in the bridge log.</p>
+                <p id="amdbshim-status">starting…</p>
+                <button id="amdbshim-push">Push token now</button>
+            </div>
+        </ingame-ui>
+    </amdb-shim>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "dependencies": [],
+  "content_type": "MISC",
+  "title": "AMDB Token Shim (iniBuilds OANS)",
+  "manufacturer": "",
+  "creator": "Free Airport Mapping DB",
+  "package_version": "0.4.2",
+  "minimum_game_version": "1.0.0",
+  "export_type": "Community",
+  "total_package_size": "00000000000000000000",
+  "release_notes": {
+    "neutral": {
+      "LastUpdate": "Companion shim for encrypted iniBuilds aircraft (e.g. the Marketplace A380) whose EFB files cannot be patched. While this panel is open it answers the OANS gauge's Navigraph token requests with the bridge placeholder, so the aircraft's own map draws from amdb-bridge. No Navigraph account needed.",
+      "OlderHistory": ""
+    }
+  }
+}
