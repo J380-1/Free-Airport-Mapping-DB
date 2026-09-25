@@ -1,7 +1,8 @@
-<Project Version="2" Name="amdb-injector-shim" FolderName="Packages">
-	<OutputDirectory>.</OutputDirectory>
-	<TemporaryOutputDirectory>_Temp</TemporaryOutputDirectory>
-	<Packages>
-		<Package>PackageDefinitions\amdb-injector-shim.xml</Package>
-	</Packages>
-</Project>
+<?xml version="1.0" encoding="utf-8"?>
+<PackageProject>
+  <OutputDirectory>.</OutputDirectory>
+  <TemporaryOutputDirectory>_Temp</TemporaryOutputDirectory>
+  <Packages>
+    <Package>PackageDefinitions\amdb-injector-shim.xml</Package>
+  </Packages>
+</PackageProject>
