@@ -186,10 +186,10 @@ fn client_name(agent: &str) -> String {
     let a = agent.to_ascii_lowercase();
     if a.contains("flybywire") || a.contains("fbw") {
         "FlyByWire".to_string()
-    } else if a.contains("kittyhawk") || (a.contains("inibuilds") && a.contains("a380")) {
-        // User-Agent observed from the iniBuilds A380's WASM gauge
-        // (`KittyHawk/0.9 (Windows; Desktop; Client/0.1)`).
-        "iniBuilds A380".to_string()
+    } else if a.contains("kittyhawk") {
+        // Shared iniBuilds WASM core: identical on the A350 and the A380, so the
+        // log cannot tell which of the two is calling. Do not label it "A380".
+        "iniBuilds KittyHawk".to_string()
     } else if a.contains("a380") {
         "A380".to_string()
     } else if a.contains("inibuilds") || a.contains("a350") {
@@ -495,8 +495,10 @@ mod tests {
 
     #[test]
     fn names_clients_including_the_a380() {
-        assert_eq!(client_name("KittyHawk/0.9 (Windows; Desktop; Client/0.1)"), "iniBuilds A380");
-        assert_eq!(client_name("inibuilds-a380-efb/1.0"), "iniBuilds A380");
+        // KittyHawk is the shared iniBuilds core on both the A350 and the A380:
+        // it must not be labelled as either aircraft.
+        assert_eq!(client_name("KittyHawk/0.9 (Windows; Desktop; Client/0.1)"), "iniBuilds KittyHawk");
+        assert_eq!(client_name("inibuilds-a380-efb/1.0"), "A380");
         assert_eq!(client_name("iniBuilds A350 OANS"), "iniBuilds");
         assert_eq!(client_name("FlyByWire A380X"), "FlyByWire");
         assert_eq!(client_name(""), "unknown client");

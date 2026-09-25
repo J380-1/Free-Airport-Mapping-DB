@@ -211,16 +211,17 @@ the bridge placeholder performs exactly the EFB patch by other means:
 
 ```
 amdb-bridge status       # look for "Sealed aircraft token stores"
-amdb-bridge seed-token   # backup kept next to each file
-amdb-bridge serve        # then load the aircraft; its own map should draw
-amdb-bridge unseed-token # restores the originals byte for byte
+amdb-bridge serve        # start serving, then load the aircraft
+amdb-bridge seed-token   # AFTER the flight is loaded: the EFB clears the
+                         # store at load, so seeding before loading is wiped
 ```
 
-To confirm it works, trigger the airport map and look for `(with token)` next to
-your aircraft in the bridge log: requests arriving *without* a token mean the gauge
-never picked the seeded file up (restart the flight after seeding). Only recognised
-shapes are ever written (a bare `navigraph*.txt`, or a JSON store where a single
-token value is replaced); anything else is reported and left alone.
+Then trigger the airport map without reloading. To confirm it works, look for
+`(with token)` next to the KittyHawk client in the bridge log (note: that
+User-Agent is iniBuilds' shared core, identical on the A350 and A380, so the log
+cannot tell the two apart — confirm by which aircraft you loaded). Requests
+arriving *without* a token, or no requests at all, mean the gauge never picked the
+seeded file up. `amdb-bridge unseed-token` restores the originals byte for byte.
 
 ## Airport moving map for the A220 (MSFS)
 

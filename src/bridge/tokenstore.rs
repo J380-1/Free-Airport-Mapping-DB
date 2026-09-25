@@ -13,6 +13,11 @@
 //! touched, no Navigraph account is needed, and every write keeps a backup next to
 //! the file so `unseed-token` restores the original byte for byte.
 //!
+//! Timing matters: the EFB clears the store at aircraft load when there is no valid
+//! session, so seeding must happen AFTER the flight is loaded (seed, then trigger
+//! the map without reloading). A store found empty after a flight ran does not mean
+//! seeding failed — it means the EFB wiped it at load.
+//!
 //! Only recognised shapes are ever written: a bare-token `navigraph*.txt`, or a JSON
 //! store where a single access/id-token value is replaced and everything else is kept.
 //! Anything else is reported as unrecognised and left alone. File contents are never
