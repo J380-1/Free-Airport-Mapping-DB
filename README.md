@@ -206,22 +206,24 @@ Sealed aircraft cannot be patched: their EFB files are encrypted, so the handler
 rewrite above never reaches them and the gauge keeps reporting `ARPT NAV NOT
 AVAILABLE (NAVIGRAPH)` even while the bridge serves data. Those aircraft still keep
 writable per-aircraft data outside the sealed package — the MSFS WASM work folders —
-including the file the EFB persists its Navigraph token in. Seeding that file with
-the bridge placeholder performs exactly the EFB patch by other means:
+including the file the EFB persists its Navigraph token in:
 
 ```
 amdb-bridge status       # look for "Sealed aircraft token stores"
-amdb-bridge serve        # start serving, then load the aircraft
 amdb-bridge seed-token   # AFTER the flight is loaded: the EFB clears the
                          # store at load, so seeding before loading is wiped
 ```
 
-Then trigger the airport map without reloading. To confirm it works, look for
-`(with token)` next to the KittyHawk client in the bridge log (note: that
-User-Agent is iniBuilds' shared core, identical on the A350 and A380, so the log
-cannot tell the two apart — confirm by which aircraft you loaded). Requests
-arriving *without* a token, or no requests at all, mean the gauge never picked the
-seeded file up. `amdb-bridge unseed-token` restores the originals byte for byte.
+Flight-tested result on the iniBuilds A380: seeding alone does **not** unlock it.
+The gauge never reads that file — the token reaches it only through the sealed EFB
+over the comm bus — so a seeded store plus zero bridge requests means the file
+channel is a dead end for that aircraft, and `seed-token` remains a diagnostic aid.
+What can still work without a paid subscription: sign the EFB in with a **free**
+Navigraph account and trigger the map. The bridge ignores token scope and serves its
+own free data to any bearer, so if the gauge only needs a genuine token the map
+draws; if it still shows `NOT AVAILABLE` despite requests arriving, the gauge
+enforces a paid subscription server-side and there is no free route to the built-in
+map. `amdb-bridge unseed-token` restores the originals byte for byte.
 
 ## Airport moving map for the A220 (MSFS)
 
